@@ -12,8 +12,10 @@ public class ActivityService {
 
     private final List<Activity> activities = Collections.synchronizedList(new ArrayList<>());
 
-    public void addActivity(String username, String text) {
-        activities.add(new Activity(username, text));
+    public Activity addActivity(String username, String text) {
+        Activity activity = new Activity(username, text);
+        activities.add(activity);
+        return activity;
     }
 
     public List<Activity> getAllActivities() {
