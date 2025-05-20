@@ -1,0 +1,8 @@
+com\fitconnect\entity\User.class
+com\fitconnect\FitconnectBackendApplication.class
+com\fitconnect\controller\AuthController.class
+com\fitconnect\service\AuthService.class
+com\fitconnect\security\SecurityConfig.class
+com\fitconnect\dto\AuthRequest.class
+com\fitconnect\security\JwtUtil.class
+com\fitconnect\dto\AuthResponse.class
