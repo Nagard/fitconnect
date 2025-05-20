@@ -2,6 +2,7 @@
     const token = localStorage.getItem("jwt_token");
     const errorMsg = document.getElementById("error-msg");
     const feedList = document.getElementById("feed-list");
+    const logoutBtn = document.getElementById("logout-btn");
   
     if (!token) {
       errorMsg.textContent = "Nicht eingeloggt. Bitte zuerst anmelden.";
@@ -28,4 +29,10 @@
     } catch (err) {
       errorMsg.textContent = "Fehler beim Laden des Feeds.";
     }
+  
+    // Logout-Logik
+    logoutBtn.addEventListener("click", () => {
+      localStorage.removeItem("jwt_token");
+      window.location.href = "index.html";
+    });
   })();

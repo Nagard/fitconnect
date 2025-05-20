@@ -3,20 +3,21 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>fitconnect – Login</title>
+  <title>fitconnect – Registrierung</title>
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
-  <h1>fitconnect Login</h1>
+  <h1>Registrierung</h1>
 
-  <form id="login-form">
+  <form id="register-form">
     <input type="text" id="username" placeholder="Benutzername" required />
     <input type="password" id="password" placeholder="Passwort" required />
-    <button type="submit">Einloggen</button>
+    <button type="submit">Registrieren</button>
   </form>
 
+  <p id="success-msg" style="color:green;"></p>
   <p id="error-msg" style="color:red;"></p>
 
-  <script src="js/login.js"></script>
+  <script src="js/register.js"></script>
 </body>
 </html>
