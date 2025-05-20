@@ -18,6 +18,10 @@ public class AuthService {
     private final BCryptPasswordEncoder encoder = new BCryptPasswordEncoder();
 
     public AuthResponse register(AuthRequest request) {
+        if (users.containsKey(request.username)) {
+            throw new RuntimeException("Benutzername ist bereits vergeben");
+        }
+    
         String hashedPassword = encoder.encode(request.password);
         User user = new User(request.username, hashedPassword);
         users.put(request.username, user);

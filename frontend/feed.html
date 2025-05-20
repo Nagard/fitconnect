@@ -9,8 +9,14 @@
 <body>
   <header>
     <h1>fitconnect Feed</h1>
+    <span id="user-greeting"></span>
     <button id="logout-btn">Logout</button>
   </header>
+
+  <form id="activity-form">
+    <input type="text" id="activity-input" placeholder="Was hast du gemacht?" required />
+    <button type="submit">Posten</button>
+  </form>
 
   <ul id="feed-list"></ul>
   <p id="error-msg" style="color:red;"></p>
@@ -18,4 +24,3 @@
   <script src="js/feed.js"></script>
 </body>
 </html>
-

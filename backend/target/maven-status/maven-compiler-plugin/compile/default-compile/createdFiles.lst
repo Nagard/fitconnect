@@ -3,7 +3,6 @@ com\fitconnect\FitconnectBackendApplication.class
 com\fitconnect\controller\AuthController.class
 com\fitconnect\security\SecurityConfig.class
 com\fitconnect\dto\AuthRequest.class
-com\fitconnect\controller\FeedController.class
 com\fitconnect\dto\AuthResponse.class
 com\fitconnect\security\JwtAuthFilter.class
 com\fitconnect\service\AuthService.class
