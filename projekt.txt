@@ -1,0 +1,995 @@
+
+--------------------------------------------------------------------------------
+Datei: C:\Bootcamp\fitconnect\fitconnect\backend\pom.xml
+--------------------------------------------------------------------------------
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+                             http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>3.2.5</version>
+        <relativePath/>
+    </parent>
+
+    <groupId>com.fitconnect</groupId>
+    <artifactId>backend</artifactId>
+    <version>0.0.1-SNAPSHOT</version>
+    <name>fitconnect-backend</name>
+
+    <properties>
+        <java.version>17</java.version>
+    </properties>
+
+    <dependencies>
+        <!-- Web & REST -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+
+        <!-- Spring Security -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-security</artifactId>
+        </dependency>
+
+        <!-- PostgreSQL DB -->
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+            <version>42.7.2</version>
+        </dependency>
+
+        <!-- JPA / Hibernate -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-jpa</artifactId>
+        </dependency>
+
+        <!-- JWT optional -->
+        <dependency>
+            <groupId>io.jsonwebtoken</groupId>
+            <artifactId>jjwt-api</artifactId>
+            <version>0.11.5</version>
+        </dependency>
+        <dependency>
+            <groupId>io.jsonwebtoken</groupId>
+            <artifactId>jjwt-impl</artifactId>
+            <version>0.11.5</version>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.jsonwebtoken</groupId>
+            <artifactId>jjwt-jackson</artifactId>
+            <version>0.11.5</version>
+            <scope>runtime</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+</project>
+
+.
+--------------------------------------------------------------------------------
+Datei: C:\Bootcamp\fitconnect\fitconnect\backend\src\main\java\com\fitconnect\FitconnectBackendApplication.java
+--------------------------------------------------------------------------------
+package com.fitconnect;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+@SpringBootApplication
+public class FitconnectBackendApplication {
+
+    public static void main(String[] args) {
+        SpringApplication.run(FitconnectBackendApplication.class, args);
+    }
+}.
+.
+--------------------------------------------------------------------------------
+Datei: C:\Bootcamp\fitconnect\fitconnect\backend\src\main\java\com\fitconnect\controller\ActivityController.java
+--------------------------------------------------------------------------------
+package com.fitconnect.controller;
+
+import com.fitconnect.dto.ActivityRequest;
+import com.fitconnect.entity.Activity;
+import com.fitconnect.repository.ActivityRepository;
+import com.fitconnect.service.FeedSseService;
+
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
+import org.springframework.web.bind.annotation.*;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+
+import java.util.List;
+import java.util.Optional;
+
+@RestController
+@RequestMapping("/activities")
+public class ActivityController {
+
+    private final ActivityRepository activityRepository;
+    private final FeedSseService feedSseService;
+
+    public ActivityController(ActivityRepository activityRepository, FeedSseService feedSseService) {
+        this.activityRepository = activityRepository;
+        this.feedSseService = feedSseService;
+    }
+
+    @GetMapping("/feed-stream")
+    public SseEmitter subscribeToFeed() {
+        return feedSseService.subscribe();
+    }
+
+    @PostMapping
+    public ResponseEntity<Void> postActivity(@RequestBody ActivityRequest request, Authentication auth) {
+        Activity activity = new Activity(auth.getName(), request.text());
+        activityRepository.save(activity);
+        feedSseService.broadcast(activity); // 🔴 Sende live an alle
+        return ResponseEntity.ok().build();
+    }
+
+
+    @GetMapping
+    public List<Activity> getFeed() {
+        return activityRepository.findAllByOrderByTimestampDesc();
+    }
+
+    @PutMapping("/{id}")
+    public ResponseEntity<?> update(@PathVariable Long id, @RequestBody ActivityRequest request, Authentication auth) {
+        Optional<Activity> optional = activityRepository.findById(id);
+        if (optional.isEmpty()) return ResponseEntity.notFound().build();
+
+        Activity activity = optional.get();
+        if (!activity.getUser().equals(auth.getName())) return ResponseEntity.status(403).build();
+
+        activity.setText(request.text());
+        activityRepository.save(activity);
+        return ResponseEntity.ok().build();
+    }
+
+    @DeleteMapping("/{id}")
+    public ResponseEntity<?> delete(@PathVariable Long id, Authentication auth) {
+        Optional<Activity> optional = activityRepository.findById(id);
+        if (optional.isEmpty()) return ResponseEntity.notFound().build();
+
+        Activity activity = optional.get();
+        if (!activity.getUser().equals(auth.getName())) return ResponseEntity.status(403).build();
+
+        activityRepository.deleteById(id);
+        return ResponseEntity.ok().build();
+    }
+}
+.
+.
+--------------------------------------------------------------------------------
+Datei: C:\Bootcamp\fitconnect\fitconnect\backend\src\main\java\com\fitconnect\controller\AuthController.java
+--------------------------------------------------------------------------------
+package com.fitconnect.controller;
+
+import com.fitconnect.dto.AuthRequest;
+import com.fitconnect.dto.AuthResponse;
+import com.fitconnect.service.AuthService;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+@RestController
+@RequestMapping("/auth")
+public class AuthController {
+
+    private final AuthService authService;
+
+    public AuthController(AuthService authService) {
+        this.authService = authService;
+    }
+
+    @PostMapping("/register")
+    public ResponseEntity<AuthResponse> register(@RequestBody AuthRequest request) {
+        return ResponseEntity.ok(authService.register(request));
+    }
+
+    @PostMapping("/login")
+    public ResponseEntity<AuthResponse> login(@RequestBody AuthRequest request) {
+        return ResponseEntity.ok(authService.login(request));
+    } 
+}
+.
+.
+--------------------------------------------------------------------------------
+Datei: C:\Bootcamp\fitconnect\fitconnect\backend\src\main\java\com\fitconnect\dto\ActivityRequest.java
+--------------------------------------------------------------------------------
+package com.fitconnect.dto;
+
+public record ActivityRequest(String text) {}
+.
+.
+--------------------------------------------------------------------------------
+Datei: C:\Bootcamp\fitconnect\fitconnect\backend\src\main\java\com\fitconnect\dto\AuthRequest.java
+--------------------------------------------------------------------------------
+package com.fitconnect.dto;
+
+public class AuthRequest {
+    public String username;
+    public String password;
+}
+.
+.
+--------------------------------------------------------------------------------
+Datei: C:\Bootcamp\fitconnect\fitconnect\backend\src\main\java\com\fitconnect\dto\AuthResponse.java
+--------------------------------------------------------------------------------
+package com.fitconnect.dto;
+
+public class AuthResponse {
+    public String token;
+
+    public AuthResponse(String token) {
+        this.token = token;
+    }
+}
+.
+.
+--------------------------------------------------------------------------------
+Datei: C:\Bootcamp\fitconnect\fitconnect\backend\src\main\java\com\fitconnect\entity\Activity.java
+--------------------------------------------------------------------------------
+package com.fitconnect.entity;
+
+import jakarta.persistence.*;
+
+@Entity
+public class Activity {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(name = "username")
+    private String user;
+    private String text;
+    private long timestamp;
+
+    public Activity() {}
+
+    public Activity(String user, String text) {
+        this.user = user;
+        this.text = text;
+        this.timestamp = System.currentTimeMillis();
+    }
+
+    public Long getId() { return id; }
+    public String getUser() { return user; }
+    public String getText() { return text; }
+    public long getTimestamp() { return timestamp; }
+
+    public void setText(String text) {
+        this.text = text;
+    }
+}
+
+.
+.
+--------------------------------------------------------------------------------
+Datei: C:\Bootcamp\fitconnect\fitconnect\backend\src\main\java\com\fitconnect\entity\User.java
+--------------------------------------------------------------------------------
+package com.fitconnect.entity;
+
+public class User {
+    private String username;
+    private String password;
+
+    public User(String username, String password) {
+        this.username = username;
+        this.password = password;
+    }
+
+    public String getUsername() { return username; }
+
+    public String getPassword() { return password; }
+}
+.
+.
+--------------------------------------------------------------------------------
+Datei: C:\Bootcamp\fitconnect\fitconnect\backend\src\main\java\com\fitconnect\repository\ActivityRepository.java
+--------------------------------------------------------------------------------
+package com.fitconnect.repository;
+
+import com.fitconnect.entity.Activity;
+import org.springframework.data.jpa.repository.JpaRepository;
+
+import java.util.List;
+
+public interface ActivityRepository extends JpaRepository<Activity, Long> {
+    List<Activity> findAllByOrderByTimestampDesc();
+}
+.
+.
+--------------------------------------------------------------------------------
+Datei: C:\Bootcamp\fitconnect\fitconnect\backend\src\main\java\com\fitconnect\security\CorsConfig.java
+--------------------------------------------------------------------------------
+package com.fitconnect.security;
+
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.web.servlet.config.annotation.*;
+
+@Configuration
+public class CorsConfig {
+
+    @Bean
+    public WebMvcConfigurer corsConfigurer() {
+        return new WebMvcConfigurer() {
+            @Override
+            public void addCorsMappings(CorsRegistry registry) {
+                registry.addMapping("/**")
+                        .allowedOrigins("http://127.0.0.1:5500")
+                        .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
+                        .allowedHeaders("*")
+                        .allowCredentials(true);
+            }
+        };
+    }
+}.
+.
+--------------------------------------------------------------------------------
+Datei: C:\Bootcamp\fitconnect\fitconnect\backend\src\main\java\com\fitconnect\security\JwtAuthFilter.java
+--------------------------------------------------------------------------------
+package com.fitconnect.security;
+
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
+import org.springframework.stereotype.Component;
+import org.springframework.web.filter.OncePerRequestFilter;
+
+import java.io.IOException;
+import java.util.Collections;
+
+@Component
+public class JwtAuthFilter extends OncePerRequestFilter {
+
+    private final JwtUtil jwtUtil = new JwtUtil();
+
+    @Override
+    protected void doFilterInternal(HttpServletRequest request,
+                                    HttpServletResponse response,
+                                    FilterChain filterChain)
+            throws ServletException, IOException {
+
+        // ✅ komplett überspringen bei SSE-Endpunkt
+        if (request.getRequestURI().equals("/feed-stream")) {
+            SecurityContextHolder.clearContext(); // 🔒 wichtig
+            filterChain.doFilter(request, response);
+            return;
+        }
+
+        final String authHeader = request.getHeader("Authorization");
+
+        if (authHeader != null && authHeader.startsWith("Bearer ")) {
+            String token = authHeader.substring(7);
+            String username = jwtUtil.validateTokenAndGetUsername(token);
+
+            if (username != null && SecurityContextHolder.getContext().getAuthentication() == null) {
+                var auth = new UsernamePasswordAuthenticationToken(
+                        username, null, Collections.emptyList());
+                auth.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
+                SecurityContextHolder.getContext().setAuthentication(auth);
+            }
+        }
+
+        filterChain.doFilter(request, response);
+    }
+}
+.
+.
+--------------------------------------------------------------------------------
+Datei: C:\Bootcamp\fitconnect\fitconnect\backend\src\main\java\com\fitconnect\security\JwtUtil.java
+--------------------------------------------------------------------------------
+package com.fitconnect.security;
+
+import io.jsonwebtoken.*;
+import io.jsonwebtoken.security.Keys;
+
+import javax.crypto.SecretKey;
+import java.nio.charset.StandardCharsets;
+import java.util.Date;
+
+public class JwtUtil {
+
+    private static final SecretKey SECRET_KEY = Keys.hmacShaKeyFor(
+        "my-super-secret-key-which-is-32-bytes!!".getBytes(StandardCharsets.UTF_8)
+    );
+
+    public String generateToken(String username) {
+        return Jwts.builder()
+                .setSubject(username)
+                .setIssuedAt(new Date())
+                .setExpiration(new Date(System.currentTimeMillis() + 86400000))
+                .signWith(SECRET_KEY)
+                .compact();
+    }
+
+    public String validateTokenAndGetUsername(String token) {
+        try {
+            Claims claims = Jwts.parserBuilder()
+                    .setSigningKey(SECRET_KEY)
+                    .build()
+                    .parseClaimsJws(token)
+                    .getBody();
+            return claims.getSubject();
+        } catch (JwtException e) {
+            return null;
+        }
+    }
+}
+.
+.
+--------------------------------------------------------------------------------
+Datei: C:\Bootcamp\fitconnect\fitconnect\backend\src\main\java\com\fitconnect\security\SecurityConfig.java
+--------------------------------------------------------------------------------
+package com.fitconnect.security;
+
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+import org.springframework.security.config.Customizer;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.beans.factory.annotation.Autowired;
+
+@Configuration
+public class SecurityConfig {
+
+    @Autowired
+    private JwtAuthFilter jwtAuthFilter;
+
+    @Bean
+public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+    http
+        .csrf(csrf -> csrf.disable())
+        .authorizeHttpRequests(auth -> auth
+            .requestMatchers("/auth/**", "/feed-stream").permitAll()
+                        .anyRequest().authenticated()
+        )
+        .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class)
+        .httpBasic(Customizer.withDefaults());
+
+    return http.build();
+}
+}
+.
+.
+--------------------------------------------------------------------------------
+Datei: C:\Bootcamp\fitconnect\fitconnect\backend\src\main\java\com\fitconnect\service\ActivityService.java
+--------------------------------------------------------------------------------
+package com.fitconnect.service;
+
+import com.fitconnect.entity.Activity;
+import org.springframework.stereotype.Service;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+
+@Service
+public class ActivityService {
+
+    private final List<Activity> activities = Collections.synchronizedList(new ArrayList<>());
+
+    public Activity addActivity(String username, String text) {
+        Activity activity = new Activity(username, text);
+        activities.add(activity);
+        return activity;
+    }
+
+    public List<Activity> getAllActivities() {
+        return List.copyOf(activities);
+    }
+}
+.
+.
+--------------------------------------------------------------------------------
+Datei: C:\Bootcamp\fitconnect\fitconnect\backend\src\main\java\com\fitconnect\service\AuthService.java
+--------------------------------------------------------------------------------
+package com.fitconnect.service;
+
+import com.fitconnect.dto.AuthRequest;
+import com.fitconnect.dto.AuthResponse;
+import com.fitconnect.entity.User;
+import com.fitconnect.security.JwtUtil;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.stereotype.Service;
+
+import java.util.HashMap;
+import java.util.Map;
+
+@Service
+public class AuthService {
+
+    private final Map<String, User> users = new HashMap<>();
+    private final JwtUtil jwtUtil = new JwtUtil();
+    private final BCryptPasswordEncoder encoder = new BCryptPasswordEncoder();
+
+    public AuthResponse register(AuthRequest request) {
+        if (users.containsKey(request.username)) {
+            throw new RuntimeException("Benutzername ist bereits vergeben");
+        }
+    
+        String hashedPassword = encoder.encode(request.password);
+        User user = new User(request.username, hashedPassword);
+        users.put(request.username, user);
+        String token = jwtUtil.generateToken(request.username);
+        return new AuthResponse(token);
+    }
+
+public AuthResponse login(AuthRequest request) {
+    User user = users.get(request.username);
+    if (user == null) {
+        throw new RuntimeException("Benutzer nicht gefunden");
+    }
+
+    if (!encoder.matches(request.password, user.getPassword())) {
+        throw new RuntimeException("Falsches Passwort");
+    }
+
+    String token = jwtUtil.generateToken(user.getUsername());
+    return new AuthResponse(token);
+}
+
+}
+.
+.
+--------------------------------------------------------------------------------
+Datei: C:\Bootcamp\fitconnect\fitconnect\backend\src\main\java\com\fitconnect\service\FeedSseService.java
+--------------------------------------------------------------------------------
+package com.fitconnect.service;
+
+import com.fitconnect.entity.Activity;
+import org.springframework.stereotype.Service;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+
+import java.io.IOException;
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
+
+@Service
+public class FeedSseService {
+
+    private final List<SseEmitter> clients = new CopyOnWriteArrayList<>();
+
+    public SseEmitter subscribe() {
+        SseEmitter emitter = new SseEmitter(30 * 60 * 1000L); // 30 Minuten
+        clients.add(emitter);
+
+        emitter.onCompletion(() -> clients.remove(emitter));
+        emitter.onTimeout(() -> clients.remove(emitter));
+        emitter.onError(e -> clients.remove(emitter));
+
+        return emitter;
+    }
+
+    public void broadcast(Activity activity) {
+        for (SseEmitter emitter : clients) {
+            try {
+                emitter.send(SseEmitter.event()
+                    .name("activity")
+                    .data(activity));
+            } catch (IOException e) {
+                emitter.complete();
+                clients.remove(emitter);
+            }
+        }
+    }
+}
+.
+.
+--------------------------------------------------------------------------------
+Datei: C:\Bootcamp\fitconnect\fitconnect\backend\src\main\resources\application.properties
+--------------------------------------------------------------------------------
+spring.datasource.url=jdbc:postgresql://localhost:5432/fitconnect
+spring.datasource.username=postgres
+spring.datasource.password=postgres
+
+spring.jpa.hibernate.ddl-auto=update
+spring.jpa.show-sql=true
+spring.jpa.properties.hibernate.format_sql=true
+
+spring.sql.init.mode=always
+server.port=8080
+.
+.
+--------------------------------------------------------------------------------
+Datei: C:\Bootcamp\fitconnect\fitconnect\backend\target\classes\application.properties
+--------------------------------------------------------------------------------
+spring.datasource.url=jdbc:postgresql://localhost:5432/fitconnect
+spring.datasource.username=postgres
+spring.datasource.password=postgres
+
+spring.jpa.hibernate.ddl-auto=update
+spring.jpa.show-sql=true
+spring.jpa.properties.hibernate.format_sql=true
+
+spring.sql.init.mode=always
+server.port=8080
+.
+.
+--------------------------------------------------------------------------------
+Datei: C:\Bootcamp\fitconnect\fitconnect\frontend\feed.html
+--------------------------------------------------------------------------------
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>fitconnect – Feed</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header>
+    <h1>fitconnect Feed</h1>
+    <span id="user-greeting"></span>
+    <button id="logout-btn">Logout</button>
+  </header>
+
+  <form id="activity-form">
+    <input type="text" id="activity-input" placeholder="Was hast du gemacht?" required />
+    <button type="submit">Posten</button>
+  </form>
+
+  <ul id="feed-list"></ul>
+  <p id="error-msg" style="color:red;"></p>
+
+  <script src="js/feed.js"></script>
+</body>
+</html>
+.
+.
+--------------------------------------------------------------------------------
+Datei: C:\Bootcamp\fitconnect\fitconnect\frontend\index.html
+--------------------------------------------------------------------------------
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>fitconnect – Login</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header>
+    <h1>fitconnect</h1>
+    <nav>
+      <a href="register.html">Noch kein Account? Registrieren</a>
+    </nav>
+  </header>
+
+  <form id="login-form">
+    <input type="text" id="username" placeholder="Benutzername" required />
+    <input type="password" id="password" placeholder="Passwort" required />
+    <button type="submit">Einloggen</button>
+  </form>
+
+  <p id="error-msg" style="color:red;"></p>
+  <script src="js/login.js"></script>
+</body>
+</html>
+.
+.
+--------------------------------------------------------------------------------
+Datei: C:\Bootcamp\fitconnect\fitconnect\frontend\register.html
+--------------------------------------------------------------------------------
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>fitconnect – Registrierung</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header>
+    <h1>fitconnect</h1>
+    <nav>
+      <a href="index.html">Zurück zum Login</a>
+    </nav>
+  </header>
+
+  <form id="register-form">
+    <input type="text" id="username" placeholder="Benutzername" required />
+    <input type="password" id="password" placeholder="Passwort" required />
+    <button type="submit">Registrieren</button>
+  </form>
+
+  <p id="success-msg" style="color:green;"></p>
+  <p id="error-msg" style="color:red;"></p>
+
+  <script src="js/register.js"></script>
+</body>
+</html>
+.
+.
+--------------------------------------------------------------------------------
+Datei: C:\Bootcamp\fitconnect\fitconnect\frontend\css\style.css
+--------------------------------------------------------------------------------
+/* Basislayout */
+body {
+    font-family: Arial, sans-serif;
+    margin: 2rem;
+    padding: 0;
+    background-color: #f5f5f5;
+    color: #333;
+  }
+  
+  h1 {
+    color: #0077cc;
+    text-align: center;
+  }
+  
+  form {
+    max-width: 400px;
+    margin: 2rem auto;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+  
+  input {
+    padding: 0.8rem;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    font-size: 1rem;
+  }
+  
+  button {
+    padding: 0.8rem;
+    background-color: #0077cc;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    font-size: 1rem;
+    cursor: pointer;
+  }
+  
+  button:hover {
+    background-color: #005fa3;
+  }
+  
+  ul#feed-list {
+    list-style: none;
+    padding: 0;
+    max-width: 500px;
+    margin: 2rem auto;
+  }
+  
+  ul#feed-list li {
+    background-color: white;
+    margin: 0.5rem 0;
+    padding: 1rem;
+    border-radius: 6px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  }
+  
+  header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    max-width: 500px;
+    margin: auto;
+    padding: 1rem 0;
+  }
+  
+  #logout-btn {
+    background-color: #888;
+    font-size: 0.9rem;
+    padding: 0.5rem 1rem;
+  }
+  
+  #error-msg, #success-msg {
+    text-align: center;
+  }.
+.
+--------------------------------------------------------------------------------
+Datei: C:\Bootcamp\fitconnect\fitconnect\frontend\js\feed.js
+--------------------------------------------------------------------------------
+(async function () {
+    const token = localStorage.getItem("jwt_token");
+    const errorMsg = document.getElementById("error-msg");
+    const feedList = document.getElementById("feed-list");
+    const logoutBtn = document.getElementById("logout-btn");
+    const activityForm = document.getElementById("activity-form");
+    const activityInput = document.getElementById("activity-input");
+    const userGreeting = document.getElementById("user-greeting");
+  
+    if (!token) {
+      errorMsg.textContent = "Nicht eingeloggt. Bitte zuerst anmelden.";
+      return;
+    }
+  
+    let username = "";
+    try {
+      const payload = JSON.parse(atob(token.split('.')[1]));
+      username = payload.sub;
+      userGreeting.textContent = "👋 Willkommen, " + username;
+    } catch (err) {
+      userGreeting.textContent = "";
+    }
+  
+    async function loadFeed() {
+      try {
+        const response = await fetch("http://localhost:8080/activities", {
+          headers: { "Authorization": "Bearer " + token }
+        });
+  
+        if (!response.ok) throw new Error("Fehler beim Laden");
+  
+        const activities = await response.json();
+        feedList.innerHTML = "";
+        activities.forEach(activity => appendToFeed(activity));
+      } catch (err) {
+        errorMsg.textContent = "Fehler beim Laden des Feeds.";
+      }
+    }
+  
+    function appendToFeed(activity) {
+      const li = document.createElement("li");
+      li.innerHTML = `
+        <span>${activity.user} – <span data-id="${activity.id}">${activity.text}</span></span>
+        ${activity.user === username ? `
+          <button onclick="editActivity(${activity.id})">✎</button>
+          <button onclick="deleteActivity(${activity.id})">🗑️</button>
+        ` : ""}
+      `;
+      feedList.insertBefore(li, feedList.firstChild);
+    }
+  
+    activityForm.addEventListener("submit", async function (e) {
+      e.preventDefault();
+      const text = activityInput.value.trim();
+      if (!text) return;
+  
+      await fetch("http://localhost:8080/activities", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer " + token
+        },
+        body: JSON.stringify({ text: text })
+      });
+  
+      // direkt lokal anzeigen
+      const newActivity = {
+        user: username,
+        text: text,
+        id: Date.now()
+      };
+      appendToFeed(newActivity);
+  
+      activityInput.value = "";
+    });
+  
+    logoutBtn.addEventListener("click", () => {
+      localStorage.removeItem("jwt_token");
+      window.location.href = "index.html";
+    });
+  
+    window.editActivity = async function (id) {
+      const newText = prompt("Neue Aktivität:");
+      if (!newText) return;
+  
+      await fetch("http://localhost:8080/activities/" + id, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer " + token
+        },
+        body: JSON.stringify({ text: newText })
+      });
+  
+      await loadFeed();
+    };
+  
+    window.deleteActivity = async function (id) {
+      if (!confirm("Wirklich löschen?")) return;
+  
+      await fetch("http://localhost:8080/activities/" + id, {
+        method: "DELETE",
+        headers: {
+          "Authorization": "Bearer " + token
+        }
+      });
+  
+      await loadFeed();
+    };
+  
+    loadFeed();
+  
+    // 🔴 Live-Updates per SSE
+    const eventSource = new EventSource("http://localhost:8080/feed-stream");
+    eventSource.addEventListener("activity", (event) => {
+      const activity = JSON.parse(event.data);
+      if (activity.user !== username) {
+        appendToFeed(activity);
+      }
+    });
+  })();
+  .
+.
+--------------------------------------------------------------------------------
+Datei: C:\Bootcamp\fitconnect\fitconnect\frontend\js\login.js
+--------------------------------------------------------------------------------
+document.getElementById("login-form").addEventListener("submit", async function (e) {
+  e.preventDefault();
+
+  const username = document.getElementById("username").value.trim();
+  const password = document.getElementById("password").value.trim();
+  const errorMsg = document.getElementById("error-msg");
+
+  try {
+    const response = await fetch("http://localhost:8080/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password }),
+    });
+
+    if (!response.ok) {
+      throw new Error("Login fehlgeschlagen");
+    }
+
+    const data = await response.json();
+    localStorage.setItem("jwt_token", data.token);
+    window.location.href = "feed.html";
+  } catch (err) {
+    errorMsg.textContent = "Login fehlgeschlagen. Bitte überprüfe deine Eingaben.";
+  }
+});
+.
+.
+--------------------------------------------------------------------------------
+Datei: C:\Bootcamp\fitconnect\fitconnect\frontend\js\register.js
+--------------------------------------------------------------------------------
+document.getElementById("register-form").addEventListener("submit", async function (e) {
+  e.preventDefault();
+
+  const username = document.getElementById("username").value.trim();
+  const password = document.getElementById("password").value.trim();
+  const errorMsg = document.getElementById("error-msg");
+  const successMsg = document.getElementById("success-msg");
+
+  try {
+    const response = await fetch("http://localhost:8080/auth/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password }),
+    });
+
+    if (!response.ok) {
+      throw new Error("Registrierung fehlgeschlagen");
+    }
+
+    successMsg.textContent = "Registrierung erfolgreich! Du wirst weitergeleitet...";
+    errorMsg.textContent = "";
+
+    setTimeout(() => {
+      window.location.href = "index.html";
+    }, 1500);
+  } catch (err) {
+    errorMsg.textContent = "Benutzername evtl. bereits vergeben.";
+    successMsg.textContent = "";
+  }
+});
+.
+Dr�cken Sie eine beliebige Taste . . . 

@@ -36,4 +36,30 @@ public class FeedSseService {
             }
         }
     }
+
+    public void broadcastUpdate(Activity activity) {
+        for (SseEmitter emitter : clients) {
+            try {
+                emitter.send(SseEmitter.event()
+                    .name("activity-update")
+                    .data(activity));
+            } catch (IOException e) {
+                emitter.complete();
+                clients.remove(emitter);
+            }
+        }
+    }
+    
+    public void broadcastDelete(Long activityId) {
+        for (SseEmitter emitter : clients) {
+            try {
+                emitter.send(SseEmitter.event()
+                    .name("activity-delete")
+                    .data(activityId));
+            } catch (IOException e) {
+                emitter.complete();
+                clients.remove(emitter);
+            }
+        }
+    }
 }

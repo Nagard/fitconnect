@@ -3,6 +3,7 @@ C:\Bootcamp\fitconnect\fitconnect\backend\src\main\java\com\fitconnect\security\
 C:\Bootcamp\fitconnect\fitconnect\backend\src\main\java\com\fitconnect\service\FeedSseService.java
 C:\Bootcamp\fitconnect\fitconnect\backend\src\main\java\com\fitconnect\entity\Activity.java
 C:\Bootcamp\fitconnect\fitconnect\backend\src\main\java\com\fitconnect\security\CorsConfig.java
+C:\Bootcamp\fitconnect\fitconnect\backend\src\main\java\com\fitconnect\repository\ActivityRepository.java
 C:\Bootcamp\fitconnect\fitconnect\backend\src\main\java\com\fitconnect\security\SecurityConfig.java
 C:\Bootcamp\fitconnect\fitconnect\backend\src\main\java\com\fitconnect\entity\User.java
 C:\Bootcamp\fitconnect\fitconnect\backend\src\main\java\com\fitconnect\controller\ActivityController.java
