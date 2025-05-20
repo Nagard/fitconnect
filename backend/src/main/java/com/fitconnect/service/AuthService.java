@@ -24,4 +24,19 @@ public class AuthService {
         String token = jwtUtil.generateToken(request.username);
         return new AuthResponse(token);
     }
+
+public AuthResponse login(AuthRequest request) {
+    User user = users.get(request.username);
+    if (user == null) {
+        throw new RuntimeException("Benutzer nicht gefunden");
+    }
+
+    if (!encoder.matches(request.password, user.getPassword())) {
+        throw new RuntimeException("Falsches Passwort");
+    }
+
+    String token = jwtUtil.generateToken(user.getUsername());
+    return new AuthResponse(token);
+}
+
 }
