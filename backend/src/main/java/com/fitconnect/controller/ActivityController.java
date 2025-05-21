@@ -69,4 +69,11 @@ public class ActivityController {
         feedSseService.broadcastDelete(id); // Lösch-ID senden
         return ResponseEntity.ok().build();
     }
+
+    @GetMapping("/me/activities")
+    public List<Activity> getOwnActivities(Authentication auth) {
+        return activityRepository.findByUserOrderByTimestampDesc(auth.getName());
+    }
+
+
 }
