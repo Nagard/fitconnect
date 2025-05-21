@@ -25,8 +25,9 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             throws ServletException, IOException {
 
         // ✅ komplett überspringen bei SSE-Endpunkt
-        if (request.getRequestURI().equals("/feed-stream")) {
-            SecurityContextHolder.clearContext(); // 🔒 wichtig
+        if (request.getRequestURI().equals("/activities/feed-stream")) {
+            // SSE Endpunkt => SecurityContext löschen / oder skip
+            SecurityContextHolder.clearContext();
             filterChain.doFilter(request, response);
             return;
         }

@@ -17,6 +17,15 @@ public class Activity {
 
     private String location; // 🆕 z. B. "Darmstadt Marktplatz"
 
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
+    private Visibility visibility = Visibility.PUBLIC;
+
+    // Getter & Setter
+    public Visibility getVisibility() { return visibility; }
+    public void setVisibility(Visibility visibility) { this.visibility = visibility; }
+
     public Activity() {}
 
     public Activity(String user, String text, String location) {

@@ -19,10 +19,12 @@ public class SecurityConfig {
 public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
     http
         .csrf(csrf -> csrf.disable())
+   
         .authorizeHttpRequests(auth -> auth
         .requestMatchers("/auth/**", "/activities/feed-stream").permitAll()
-                        .anyRequest().authenticated()
-        )
+        .requestMatchers("/activities/**", "/friends/**").authenticated()
+        .anyRequest().denyAll()
+)
         .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class)
         .httpBasic(Customizer.withDefaults());
 

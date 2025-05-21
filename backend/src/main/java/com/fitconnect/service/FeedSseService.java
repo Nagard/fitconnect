@@ -51,12 +51,15 @@ public class FeedSseService {
     }
     
     public void broadcastDelete(Long activityId) {
+        System.out.println("📣 DELETE wird gesendet an " + clients.size() + " Clients für ID " + activityId);
+    
         for (SseEmitter emitter : clients) {
             try {
                 emitter.send(SseEmitter.event()
                     .name("activity-delete")
                     .data(activityId));
             } catch (IOException e) {
+                System.out.println("❌ Fehler beim Senden an einen Client: " + e.getMessage());
                 emitter.complete();
                 clients.remove(emitter);
             }

@@ -2,8 +2,11 @@ package com.fitconnect.controller;
 
 import com.fitconnect.dto.ActivityRequest;
 import com.fitconnect.entity.Activity;
+import com.fitconnect.entity.Visibility;
 import com.fitconnect.repository.ActivityRepository;
 import com.fitconnect.service.FeedSseService;
+import com.fitconnect.service.FriendshipService;
+
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
@@ -19,9 +22,14 @@ public class ActivityController {
     private final ActivityRepository activityRepository;
     private final FeedSseService feedSseService;
 
-    public ActivityController(ActivityRepository activityRepository, FeedSseService feedSseService) {
+    private final FriendshipService friendshipService;
+
+    public ActivityController(ActivityRepository activityRepository,
+                            FeedSseService feedSseService,
+                            FriendshipService friendshipService) {
         this.activityRepository = activityRepository;
         this.feedSseService = feedSseService;
+        this.friendshipService = friendshipService;
     }
 
     @GetMapping("/feed-stream")
@@ -32,15 +40,26 @@ public class ActivityController {
     @PostMapping
     public ResponseEntity<Activity> postActivity(@RequestBody ActivityRequest request, Authentication auth) {
         Activity activity = new Activity(auth.getName(), request.text(), request.location());
+        activity.setVisibility(Visibility.valueOf(request.visibility().toUpperCase())); // z. B. "FRIENDS_ONLY"
         activityRepository.save(activity);
         feedSseService.broadcast(activity);
         return ResponseEntity.ok(activity);
     }
 
-    @GetMapping
-    public List<Activity> getFeed() {
-        return activityRepository.findAllByOrderByTimestampDesc();
-    }
+   @GetMapping
+public List<Activity> getFeed(Authentication auth) {
+    String viewer = auth.getName();
+    return activityRepository.findAllByOrderByTimestampDesc().stream()
+        .filter(a -> {
+            if (a.getUser().equals(viewer)) return true;
+            return switch (a.getVisibility()) {
+                case PUBLIC -> true;
+                case PRIVATE -> false;
+                case FRIENDS_ONLY -> friendshipService.areFriends(viewer, a.getUser());
+            };
+        })
+        .toList();
+}
 
     @PutMapping("/{id}")
     public ResponseEntity<?> update(@PathVariable Long id, @RequestBody ActivityRequest request, Authentication auth) {
