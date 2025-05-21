@@ -31,10 +31,10 @@ public class ActivityController {
 
     @PostMapping
     public ResponseEntity<Activity> postActivity(@RequestBody ActivityRequest request, Authentication auth) {
-        Activity activity = new Activity(auth.getName(), request.text());
+        Activity activity = new Activity(auth.getName(), request.text(), request.location());
         activityRepository.save(activity);
         feedSseService.broadcast(activity);
-        return ResponseEntity.ok(activity); // 🟢 gibt echte ID zurück
+        return ResponseEntity.ok(activity);
     }
 
     @GetMapping
@@ -51,9 +51,9 @@ public class ActivityController {
         if (!activity.getUser().equals(auth.getName())) return ResponseEntity.status(403).build();
 
         activity.setText(request.text());
+        activity.setLocation(request.location()); // 🆕
         activityRepository.save(activity);
-
-        feedSseService.broadcastUpdate(activity); // aktualisierte Aktivität senden
+        feedSseService.broadcastUpdate(activity);
         return ResponseEntity.ok().build();
     }
 

@@ -11,24 +11,34 @@ public class Activity {
 
     @Column(name = "username")
     private String user;
+
     private String text;
     private long timestamp;
 
+    private String location; // 🆕 z. B. "Darmstadt Marktplatz"
+
     public Activity() {}
 
-    public Activity(String user, String text) {
+    public Activity(String user, String text, String location) {
         this.user = user;
         this.text = text;
+        this.location = location;
         this.timestamp = System.currentTimeMillis();
     }
 
+    // Getter & Setter
     public Long getId() { return id; }
     public String getUser() { return user; }
     public String getText() { return text; }
     public long getTimestamp() { return timestamp; }
+    public String getLocation() { return location; }
 
     public void setText(String text) {
         this.text = text;
+    }
+
+    public void setLocation(String location) {
+        this.location = location;
     }
 }
 
