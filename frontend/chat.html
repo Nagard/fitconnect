@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>fitconnect – Chat</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <header class="header-top">
+    <div class="logo-and-user">
+      <h1 class="logo">fitconnect</h1>
+      <span class="greeting">💬 Chat mit <strong id="chat-partner">...</strong></span>
+    </div>
+    <div class="header-buttons">
+      <button onclick="window.location.href='feed.html'">Zurück zum Feed</button>
+      <button id="logout-btn" class="logout-btn">Logout</button>
+    </div>
+  </header>
+
+  <main class="content-container">
+    <section class="box" id="chat-box">
+      <ul id="chat-log" class="chat-log"></ul>
+
+      <form id="chat-form" class="inline-form" style="margin-top: 1rem;">
+        <input type="text" id="chat-input" placeholder="Nachricht schreiben..." required>
+        <button type="submit">Senden</button>
+      </form>
+    </section>
+  </main>
+
+  <script src="js/chat.js"></script>
+</body>
+</html>

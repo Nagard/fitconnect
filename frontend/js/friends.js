@@ -53,7 +53,10 @@
     friendsList.innerHTML = "";
     users.forEach(user => {
       const li = document.createElement("li");
-      li.innerHTML = `<a href="profile.html?user=${user.username}">${user.username}</a>`;
+      li.innerHTML = `
+      <a href="profile.html?user=${user.username}">${user.username}</a>
+      <button onclick="window.location.href='chat.html?with=${user.username}'">💬</button>
+    `;
       friendsList.appendChild(li);
     });
   }

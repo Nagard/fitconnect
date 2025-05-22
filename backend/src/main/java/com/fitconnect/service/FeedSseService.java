@@ -79,4 +79,22 @@ public class FeedSseService {
             }
         }
     }
+
+
+
+    public void broadcastMessage(String toUsername, String fromUsername) {
+        for (SseEmitter emitter : clients) {
+            try {
+                emitter.send(SseEmitter.event()
+                    .name("new-message")
+                    .data(toUsername + "|" + fromUsername));
+            } catch (IOException e) {
+                emitter.complete();
+                clients.remove(emitter);
+            }
+        }
+    }
+
+
+    
 }
