@@ -1,6 +1,6 @@
 (async function () {
   const token = localStorage.getItem("jwt_token");
-  const greeting = document.getElementById("user-greeting");
+  const userNameElem = document.getElementById("user-name");
   const list = document.getElementById("activity-list");
   const stats = document.getElementById("stats");
   const addFriendBtn = document.getElementById("add-friend-btn");
@@ -10,7 +10,7 @@
   const targetUser = urlParams.get("user");
 
   if (!token) {
-    greeting.textContent = "Nicht eingeloggt.";
+    userNameElem.textContent = "Nicht eingeloggt";
     return;
   }
 
@@ -18,9 +18,36 @@
   try {
     const payload = JSON.parse(atob(token.split('.')[1]));
     currentUser = payload.sub;
-    greeting.textContent = "👤 Eingeloggt als: " + currentUser;
+    if (userNameElem) userNameElem.textContent = currentUser;
   } catch (err) {
-    greeting.textContent = "";
+    if (userNameElem) userNameElem.textContent = "";
+  }
+
+  // Freunde-Button aktualisieren
+  const friendsBtn = document.getElementById("friends-btn");
+  if (friendsBtn && currentUser) {
+    fetch("http://localhost:8080/friends/requests", {
+      headers: { Authorization: "Bearer " + token }
+    })
+      .then(res => res.json())
+      .then(requests => {
+        if (requests.length > 0) {
+          friendsBtn.textContent = `👥 Freunde (${requests.length})`;
+        }
+      });
+
+    friendsBtn.addEventListener("click", () => {
+      window.location.href = "freunde.html";
+    });
+  }
+
+  // Logout
+  const logoutBtn = document.getElementById("logout-btn");
+  if (logoutBtn) {
+    logoutBtn.addEventListener("click", () => {
+      localStorage.removeItem("jwt_token");
+      window.location.href = "index.html";
+    });
   }
 
   const viewedUser = targetUser || currentUser;

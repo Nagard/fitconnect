@@ -7,10 +7,16 @@
   <link rel="stylesheet" href="css/style.css" />
 </head>
 <body>
-  <header>
-    <h1>Meine Freunde</h1>
-    <span id="user-greeting"></span>
-    <button onclick="window.location.href='feed.html'">Zurück zum Feed</button>
+  <header class="header-top">
+    <div class="logo-and-user">
+      <h1 class="logo">fitconnect</h1>
+      <span class="greeting">👤 Eingeloggt als: <strong id="user-name"></strong></span>
+    </div>
+    <div class="header-buttons">
+      <button onclick="window.location.href='feed.html'">Zurück zum Feed</button>
+      <button id="friends-btn">👥 Freunde</button>
+      <button id="logout-btn" class="logout-btn">Logout</button>
+    </div>
   </header>
 
   <section>

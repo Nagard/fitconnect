@@ -19,7 +19,7 @@
 try {
   const payload = JSON.parse(atob(token.split('.')[1]));
   username = payload.sub;
-  userGreeting.textContent = "👋 Willkommen, " + username;
+  document.getElementById("user-name").textContent = username;
 } catch (err) {
   userGreeting.textContent = "";
 }

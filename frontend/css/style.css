@@ -115,3 +115,40 @@ body {
   box-shadow: none;
 }
 
+
+.header-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  max-width: 900px;
+  margin: auto;
+  padding: 1rem 0;
+  flex-wrap: wrap;
+}
+
+.logo-and-user {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.logo {
+  color: #0077cc;
+  font-size: 2rem;
+  margin: 0;
+}
+
+.greeting {
+  font-size: 1rem;
+  color: #444;
+}
+
+.header-buttons {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.logout-btn {
+  background-color: #888;
+}
+
