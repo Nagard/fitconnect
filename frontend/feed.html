@@ -25,15 +25,21 @@
 <!-- 📦 Inhalt -->
 <main class="content-container">
 
-  <!-- 🔍 Suche -->
+  <!-- 📜 Feed -->
+  <section class="feed-list-container">
+    <ul id="feed-list" class="feed-list"></ul>
+  </section>
+
+  
+
+ 
+
+
+  <!-- 🗺️ Karte -->
   <section class="box collapsible">
-    <button type="button" class="toggle" onclick="toggleBox(this)">🔍 Benutzer suchen</button>
-    <div class="content" style="display: none;">
-      <form id="user-search-form" class="inline-form">
-        <input type="text" id="search-query" placeholder="Benutzer suchen..." required />
-        <button type="submit">🔍</button>
-      </form>
-      <ul id="search-results" class="result-list"></ul>
+    <button type="button" class="toggle" onclick="toggleBox(this)">🗺️ Karte anzeigen</button>
+    <div class="content">
+      <div id="map" style="height: 300px;"></div>
     </div>
   </section>
 
@@ -53,18 +59,19 @@
     <p id="error-msg" style="color:red;"></p>
   </section>
 
-  <!-- 📜 Feed -->
-  <section class="feed-list-container">
-    <ul id="feed-list" class="feed-list"></ul>
-  </section>
-
-  <!-- 🗺️ Karte -->
-  <section class="box collapsible">
-    <button type="button" class="toggle" onclick="toggleBox(this)">🗺️ Karte anzeigen</button>
-    <div class="content">
-      <div id="map" style="height: 300px;"></div>
-    </div>
-  </section>
+  
+ <!-- 🔍 Suche -->
+ <section class="box collapsible">
+  <button type="button" class="toggle" onclick="toggleBox(this)">🔍 Benutzer suchen</button>
+  <div class="content" style="display: none;">
+    <form id="user-search-form" class="inline-form">
+      <input type="text" id="search-query" placeholder="Benutzer suchen..." required />
+      <button type="submit">🔍</button>
+    </form>
+    <ul id="search-results" class="result-list"></ul>
+  </div>
+</section>
+  
 
 </main>
 

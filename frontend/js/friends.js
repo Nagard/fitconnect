@@ -4,6 +4,35 @@
   const friendsList = document.getElementById("friends-list");
   const requestsList = document.getElementById("requests-list");
 
+
+  const eventSource = new EventSource("http://localhost:8080/activities/feed-stream");
+
+  eventSource.addEventListener("friend-removed", (event) => {
+    const [target, by] = event.data.split("|");
+    const currentUser = parseJwt(token).sub;
+  
+    if (target === currentUser) {
+      const notice = document.createElement("div");
+      notice.textContent = `🚫 ${by} hat die Freundschaft beendet.`;
+      notice.style.background = "#ffdddd";
+      notice.style.color = "#800";
+      notice.style.padding = "1rem";
+      notice.style.textAlign = "center";
+      notice.style.fontWeight = "bold";
+      notice.style.marginBottom = "1rem";
+  
+      document.body.prepend(notice);
+    }
+  });
+
+  function parseJwt(token) {
+    const payload = token.split('.')[1];
+    return JSON.parse(atob(payload));
+  }
+
+
+
+
   if (!token) {
     if (userNameElem) userNameElem.textContent = "Nicht eingeloggt.";
     return;
@@ -54,9 +83,10 @@
     users.forEach(user => {
       const li = document.createElement("li");
       li.innerHTML = `
-      <a href="profile.html?user=${user.username}">${user.username}</a>
-      <button onclick="window.location.href='chat.html?with=${user.username}'">💬</button>
-    `;
+        <a href="profile.html?user=${user.username}">${user.username}</a>
+        <button onclick="startChat('${user.username}')">💬</button>
+        <button onclick="unfriend('${user.username}')">❌</button>
+      `;
       friendsList.appendChild(li);
     });
   }
@@ -85,6 +115,22 @@
     });
     await loadFriends();
     await loadRequests();
+  };
+
+  window.unfriend = async function (username) {
+    if (!confirm(`Freundschaft mit ${username} wirklich beenden?`)) return;
+
+    await fetch(`http://localhost:8080/friends/remove/${username}`, {
+      method: "DELETE",
+      headers: { Authorization: "Bearer " + token }
+    });
+
+    await loadFriends();
+    await loadRequests();
+  };
+
+  window.startChat = function (username) {
+    window.location.href = `chat.html?with=${username}`;
   };
 
   await loadFriends();

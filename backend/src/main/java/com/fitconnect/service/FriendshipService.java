@@ -79,5 +79,16 @@ public class FriendshipService {
         // Nimm einfach den ersten Status (ggf. erweitern mit Prioritätslogik)
         return friendships.get(0).getStatus().name();
     }
+
+    public void removeFriendship(String userA, String userB) {
+        User u1 = userRepo.findById(userA).orElseThrow();
+        User u2 = userRepo.findById(userB).orElseThrow();
+    
+        friendshipRepo.findFriendshipsBetween(u1, u2)
+            .forEach(friendshipRepo::delete);
+    
+        feedSseService.broadcastUnfriend(userB, userA); // B erfährt, dass A ihn entfernt hat
+    }
+    
 }
 

@@ -95,6 +95,19 @@ public class FeedSseService {
         }
     }
 
+    public void broadcastUnfriend(String targetUsername, String byUsername) {
+        for (SseEmitter emitter : clients) {
+            try {
+                emitter.send(SseEmitter.event()
+                    .name("friend-removed")
+                    .data(targetUsername + "|" + byUsername));
+            } catch (IOException e) {
+                emitter.complete();
+                clients.remove(emitter);
+            }
+        }
+    }
+
 
     
 }

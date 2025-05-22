@@ -4,11 +4,41 @@
   const list = document.getElementById("activity-list");
   const stats = document.getElementById("stats");
   const addFriendBtn = document.getElementById("add-friend-btn");
+  const unfriendBtn = document.getElementById("unfriend-btn");
   const friendStatus = document.getElementById("friend-status");
 
   const urlParams = new URLSearchParams(window.location.search);
   const targetUser = urlParams.get("user");
 
+
+  const eventSource = new EventSource("http://localhost:8080/activities/feed-stream");
+
+  eventSource.addEventListener("friend-removed", (event) => {
+    const [target, by] = event.data.split("|");
+    const currentUser = parseJwt(token).sub;
+  
+    if (target === currentUser) {
+      const notice = document.createElement("div");
+      notice.textContent = `🚫 ${by} hat die Freundschaft beendet.`;
+      notice.style.background = "#ffdddd";
+      notice.style.color = "#800";
+      notice.style.padding = "1rem";
+      notice.style.textAlign = "center";
+      notice.style.fontWeight = "bold";
+      notice.style.marginBottom = "1rem";
+  
+      document.body.prepend(notice);
+    }
+  });
+
+  function parseJwt(token) {
+    const payload = token.split('.')[1];
+    return JSON.parse(atob(payload));
+  }
+
+
+
+  
   if (!token) {
     userNameElem.textContent = "Nicht eingeloggt";
     return;
@@ -97,6 +127,22 @@
         if (req.ok) {
           friendStatus.textContent = "Anfrage gesendet!";
           addFriendBtn.style.display = "none";
+        }
+      });
+    } else if (status === "ACCEPTED") {
+      unfriendBtn.style.display = "inline-block";
+      unfriendBtn.addEventListener("click", async () => {
+        if (!confirm(`Freundschaft mit ${viewedUser} wirklich beenden?`)) return;
+
+        const res = await fetch(`http://localhost:8080/friends/remove/${viewedUser}`, {
+          method: "DELETE",
+          headers: { Authorization: "Bearer " + token }
+        });
+
+        if (res.ok) {
+          friendStatus.textContent = "Freundschaft beendet.";
+          unfriendBtn.style.display = "none";
+          addFriendBtn.style.display = "inline-block";
         }
       });
     }

@@ -1,5 +1,18 @@
 (async function () {
   const token = localStorage.getItem("jwt_token");
+
+  function parseJwt(token) {
+    const base64Url = token.split('.')[1];
+    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+    const jsonPayload = decodeURIComponent(
+      atob(base64)
+        .split('')
+        .map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+        .join('')
+    );
+    return JSON.parse(jsonPayload);
+  }
+
   const errorMsg = document.getElementById("error-msg");
   const feedList = document.getElementById("feed-list");
   const logoutBtn = document.getElementById("logout-btn");
@@ -335,6 +348,25 @@ eventSource.addEventListener("friend-request", (event) => {
     document.body.prepend(notice);
 
     setTimeout(() => notice.remove(), 10000);
+  }
+});
+
+
+eventSource.addEventListener("friend-removed", (event) => {
+  const [target, by] = event.data.split("|");
+  const currentUser = parseJwt(token).sub;
+
+  if (target === currentUser) {
+    const notice = document.createElement("div");
+    notice.textContent = `🚫 ${by} hat die Freundschaft beendet.`;
+    notice.style.background = "#ffdddd";
+    notice.style.color = "#800";
+    notice.style.padding = "1rem";
+    notice.style.textAlign = "center";
+    notice.style.fontWeight = "bold";
+    notice.style.marginBottom = "1rem";
+
+    document.body.prepend(notice);
   }
 });
 
