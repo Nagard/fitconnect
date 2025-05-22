@@ -65,4 +65,18 @@ public class FeedSseService {
             }
         }
     }
+
+
+    public void broadcastFriendRequest(String targetUsername) {
+        for (SseEmitter emitter : clients) {
+            try {
+                emitter.send(SseEmitter.event()
+                    .name("friend-request")
+                    .data(targetUsername));
+            } catch (IOException e) {
+                emitter.complete();
+                clients.remove(emitter);
+            }
+        }
+    }
 }

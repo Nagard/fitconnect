@@ -24,6 +24,8 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                                     FilterChain filterChain)
             throws ServletException, IOException {
 
+        System.out.println("🔐 Auth-Header: " + request.getHeader("Authorization"));
+
         // ✅ komplett überspringen bei SSE-Endpunkt
         if (request.getRequestURI().equals("/activities/feed-stream")) {
             // SSE Endpunkt => SecurityContext löschen / oder skip

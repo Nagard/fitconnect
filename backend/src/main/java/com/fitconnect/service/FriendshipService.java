@@ -13,21 +13,32 @@ public class FriendshipService {
     private final FriendshipRepository friendshipRepo;
     private final UserRepository userRepo;
 
-    public FriendshipService(FriendshipRepository friendshipRepo, UserRepository userRepo) {
+    private final FeedSseService feedSseService;
+
+    public FriendshipService(FriendshipRepository friendshipRepo, UserRepository userRepo, FeedSseService feedSseService) {
         this.friendshipRepo = friendshipRepo;
         this.userRepo = userRepo;
+        this.feedSseService = feedSseService;
     }
 
     public void sendRequest(String requesterUsername, String addresseeUsername) {
-        User requester = userRepo.findById(requesterUsername).orElseThrow();
-        User addressee = userRepo.findById(addresseeUsername).orElseThrow();
-
-        if (requester.equals(addressee)) throw new IllegalArgumentException("Du kannst dich nicht selbst hinzufügen.");
-
-        friendshipRepo.findFriendshipBetween(requester, addressee)
-            .ifPresent(f -> { throw new IllegalStateException("Freundschaft existiert oder war bereits abgelehnt."); });
-
+        if (requesterUsername.equals(addresseeUsername)) {
+            throw new IllegalArgumentException("Du kannst dich nicht selbst hinzufügen.");
+        }
+    
+        // Alphabetische Sortierung: requester = min(a, b), addressee = max(a, b)
+        String user1 = requesterUsername.compareTo(addresseeUsername) < 0 ? requesterUsername : addresseeUsername;
+        String user2 = requesterUsername.compareTo(addresseeUsername) < 0 ? addresseeUsername : requesterUsername;
+    
+        User requester = userRepo.findById(user1).orElseThrow();
+        User addressee = userRepo.findById(user2).orElseThrow();
+    
+        if (!friendshipRepo.findFriendshipsBetween(requester, addressee).isEmpty()) {
+            throw new IllegalStateException("Freundschaft existiert bereits.");
+        }
+    
         friendshipRepo.save(new Friendship(requester, addressee, FriendshipStatus.PENDING));
+        feedSseService.broadcastFriendRequest(addresseeUsername); // original Ziel-Benutzer
     }
 
     public void respondToRequest(Long requestId, boolean accept) {
@@ -49,7 +60,24 @@ public class FriendshipService {
     public boolean areFriends(String userA, String userB) {
         User u1 = userRepo.findById(userA).orElseThrow();
         User u2 = userRepo.findById(userB).orElseThrow();
-        return friendshipRepo.findFriendshipBetween(u1, u2).isPresent();
+        return !friendshipRepo.findFriendshipsBetween(u1, u2).isEmpty();
+    }
+
+
+    public String getFriendshipStatus(String currentUser, String otherUser) {
+        if (currentUser.equals(otherUser)) {
+            return "SELF";
+        }
+    
+        User requester = userRepo.findById(currentUser).orElse(null);
+        User addressee = userRepo.findById(otherUser).orElse(null);
+        if (requester == null || addressee == null) return "UNKNOWN";
+    
+        List<Friendship> friendships = friendshipRepo.findFriendshipsBetween(requester, addressee);
+        if (friendships.isEmpty()) return "NONE";
+    
+        // Nimm einfach den ersten Status (ggf. erweitern mit Prioritätslogik)
+        return friendships.get(0).getStatus().name();
     }
 }
 

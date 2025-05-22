@@ -42,4 +42,11 @@ public class FriendshipController {
     public ResponseEntity<List<Friendship>> listPending(Authentication auth) {
         return ResponseEntity.ok(friendshipService.listPendingRequests(auth.getName()));
     }
+
+    @GetMapping("/{username}/status")
+    public ResponseEntity<String> getFriendshipStatus(Authentication auth, @PathVariable String username) {
+        String currentUser = auth.getName();
+        String status = friendshipService.getFriendshipStatus(currentUser, username);
+        return ResponseEntity.ok(status);
+    }
 }

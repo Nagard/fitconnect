@@ -104,8 +104,10 @@ package com.fitconnect.controller;
 
 import com.fitconnect.dto.ActivityRequest;
 import com.fitconnect.entity.Activity;
+import com.fitconnect.entity.Visibility;
 import com.fitconnect.repository.ActivityRepository;
 import com.fitconnect.service.FeedSseService;
+import com.fitconnect.service.FriendshipService;
 
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
@@ -122,9 +124,14 @@ public class ActivityController {
     private final ActivityRepository activityRepository;
     private final FeedSseService feedSseService;
 
-    public ActivityController(ActivityRepository activityRepository, FeedSseService feedSseService) {
+    private final FriendshipService friendshipService;
+
+    public ActivityController(ActivityRepository activityRepository,
+                            FeedSseService feedSseService,
+                            FriendshipService friendshipService) {
         this.activityRepository = activityRepository;
         this.feedSseService = feedSseService;
+        this.friendshipService = friendshipService;
     }
 
     @GetMapping("/feed-stream")
@@ -133,18 +140,28 @@ public class ActivityController {
     }
 
     @PostMapping
-    public ResponseEntity<Void> postActivity(@RequestBody ActivityRequest request, Authentication auth) {
-        Activity activity = new Activity(auth.getName(), request.text());
+    public ResponseEntity<Activity> postActivity(@RequestBody ActivityRequest request, Authentication auth) {
+        Activity activity = new Activity(auth.getName(), request.text(), request.location());
+        activity.setVisibility(Visibility.valueOf(request.visibility().toUpperCase())); // z. B. "FRIENDS_ONLY"
         activityRepository.save(activity);
-        feedSseService.broadcast(activity); // 🔴 Sende live an alle
-        return ResponseEntity.ok().build();
+        feedSseService.broadcast(activity);
+        return ResponseEntity.ok(activity);
     }
 
-
-    @GetMapping
-    public List<Activity> getFeed() {
-        return activityRepository.findAllByOrderByTimestampDesc();
-    }
+   @GetMapping
+public List<Activity> getFeed(Authentication auth) {
+    String viewer = auth.getName();
+    return activityRepository.findAllByOrderByTimestampDesc().stream()
+        .filter(a -> {
+            if (a.getUser().equals(viewer)) return true;
+            return switch (a.getVisibility()) {
+                case PUBLIC -> true;
+                case PRIVATE -> false;
+                case FRIENDS_ONLY -> friendshipService.areFriends(viewer, a.getUser());
+            };
+        })
+        .toList();
+}
 
     @PutMapping("/{id}")
     public ResponseEntity<?> update(@PathVariable Long id, @RequestBody ActivityRequest request, Authentication auth) {
@@ -155,7 +172,9 @@ public class ActivityController {
         if (!activity.getUser().equals(auth.getName())) return ResponseEntity.status(403).build();
 
         activity.setText(request.text());
+        activity.setLocation(request.location()); // 🆕
         activityRepository.save(activity);
+        feedSseService.broadcastUpdate(activity);
         return ResponseEntity.ok().build();
     }
 
@@ -168,8 +187,16 @@ public class ActivityController {
         if (!activity.getUser().equals(auth.getName())) return ResponseEntity.status(403).build();
 
         activityRepository.deleteById(id);
+        feedSseService.broadcastDelete(id); // Lösch-ID senden
         return ResponseEntity.ok().build();
     }
+
+    @GetMapping("/me/activities")
+    public List<Activity> getOwnActivities(Authentication auth) {
+        return activityRepository.findByUserOrderByTimestampDesc(auth.getName());
+    }
+
+
 }
 .
 .
@@ -207,11 +234,100 @@ public class AuthController {
 .
 .
 --------------------------------------------------------------------------------
+Datei: C:\Bootcamp\fitconnect\fitconnect\backend\src\main\java\com\fitconnect\controller\FriendshipController.java
+--------------------------------------------------------------------------------
+package com.fitconnect.controller;
+
+import com.fitconnect.entity.Friendship;
+import com.fitconnect.entity.User;
+import com.fitconnect.service.FriendshipService;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+
+@RestController
+@RequestMapping("/friends")
+public class FriendshipController {
+
+    private final FriendshipService friendshipService;
+
+    public FriendshipController(FriendshipService friendshipService) {
+        this.friendshipService = friendshipService;
+    }
+
+    @PostMapping("/request/{targetUsername}")
+    public ResponseEntity<Void> sendRequest(Authentication auth,
+                                            @PathVariable String targetUsername) {
+        friendshipService.sendRequest(auth.getName(), targetUsername);
+        return ResponseEntity.ok().build();
+    }
+
+    @PostMapping("/respond/{requestId}")
+    public ResponseEntity<Void> respondToRequest(@PathVariable Long requestId,
+                                                 @RequestParam boolean accept) {
+        friendshipService.respondToRequest(requestId, accept);
+        return ResponseEntity.ok().build();
+    }
+
+    @GetMapping
+    public ResponseEntity<List<User>> listFriends(Authentication auth) {
+        return ResponseEntity.ok(friendshipService.listFriends(auth.getName()));
+    }
+
+    @GetMapping("/requests")
+    public ResponseEntity<List<Friendship>> listPending(Authentication auth) {
+        return ResponseEntity.ok(friendshipService.listPendingRequests(auth.getName()));
+    }
+
+    @GetMapping("/{username}/status")
+    public ResponseEntity<String> getFriendshipStatus(Authentication auth, @PathVariable String username) {
+        String currentUser = auth.getName();
+        String status = friendshipService.getFriendshipStatus(currentUser, username);
+        return ResponseEntity.ok(status);
+    }
+}
+.
+.
+--------------------------------------------------------------------------------
+Datei: C:\Bootcamp\fitconnect\fitconnect\backend\src\main\java\com\fitconnect\controller\UserController.java
+--------------------------------------------------------------------------------
+package com.fitconnect.controller;
+
+
+
+import com.fitconnect.entity.User;
+import com.fitconnect.repository.UserRepository;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+
+@RestController
+@RequestMapping("/users")
+public class UserController {
+
+    private final UserRepository userRepository;
+
+    public UserController(UserRepository userRepository) {
+        this.userRepository = userRepository;
+    }
+
+    @GetMapping("/search")
+    public ResponseEntity<List<User>> searchUsers(@RequestParam String query) {
+        var result = userRepository.findByUsernameContainingIgnoreCase(query);
+        return ResponseEntity.ok(result);
+    }
+}
+.
+.
+--------------------------------------------------------------------------------
 Datei: C:\Bootcamp\fitconnect\fitconnect\backend\src\main\java\com\fitconnect\dto\ActivityRequest.java
 --------------------------------------------------------------------------------
 package com.fitconnect.dto;
 
-public record ActivityRequest(String text) {}
+public record ActivityRequest(String text, String location, String visibility) {}
 .
 .
 --------------------------------------------------------------------------------
@@ -255,37 +371,157 @@ public class Activity {
 
     @Column(name = "username")
     private String user;
+
     private String text;
     private long timestamp;
 
+    private String location; // 🆕 z. B. "Darmstadt Marktplatz"
+
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
+    private Visibility visibility = Visibility.PUBLIC;
+
+    // Getter & Setter
+    public Visibility getVisibility() { return visibility; }
+    public void setVisibility(Visibility visibility) { this.visibility = visibility; }
+
     public Activity() {}
 
-    public Activity(String user, String text) {
+    public Activity(String user, String text, String location) {
         this.user = user;
         this.text = text;
+        this.location = location;
         this.timestamp = System.currentTimeMillis();
     }
 
+    // Getter & Setter
     public Long getId() { return id; }
     public String getUser() { return user; }
     public String getText() { return text; }
     public long getTimestamp() { return timestamp; }
+    public String getLocation() { return location; }
 
     public void setText(String text) {
         this.text = text;
+    }
+
+    public void setLocation(String location) {
+        this.location = location;
     }
 }
 
 .
 .
 --------------------------------------------------------------------------------
+Datei: C:\Bootcamp\fitconnect\fitconnect\backend\src\main\java\com\fitconnect\entity\Friendship.java
+--------------------------------------------------------------------------------
+package com.fitconnect.entity;
+
+
+
+import jakarta.persistence.*;
+import java.time.LocalDateTime;
+
+@Entity
+public class Friendship {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @ManyToOne
+    private User requester;
+
+    @ManyToOne
+    private User addressee;
+
+    @Enumerated(EnumType.STRING)
+    private FriendshipStatus status;
+
+    private LocalDateTime createdAt;
+
+    public Friendship() {}
+
+    public Friendship(User requester, User addressee, FriendshipStatus status) {
+        this.requester = requester;
+        this.addressee = addressee;
+        this.status = status;
+        this.createdAt = LocalDateTime.now();
+    }
+
+    public Long getId() {
+        return id;
+    }
+
+    public void setId(Long id) {
+        this.id = id;
+    }
+
+    public User getRequester() {
+        return requester;
+    }
+
+    public void setRequester(User requester) {
+        this.requester = requester;
+    }
+
+    public User getAddressee() {
+        return addressee;
+    }
+
+    public void setAddressee(User addressee) {
+        this.addressee = addressee;
+    }
+
+    public FriendshipStatus getStatus() {
+        return status;
+    }
+
+    public void setStatus(FriendshipStatus status) {
+        this.status = status;
+    }
+
+    public LocalDateTime getCreatedAt() {
+        return createdAt;
+    }
+
+    public void setCreatedAt(LocalDateTime createdAt) {
+        this.createdAt = createdAt;
+    }
+
+   
+}.
+.
+--------------------------------------------------------------------------------
+Datei: C:\Bootcamp\fitconnect\fitconnect\backend\src\main\java\com\fitconnect\entity\FriendshipStatus.java
+--------------------------------------------------------------------------------
+package com.fitconnect.entity;
+
+
+public enum FriendshipStatus {
+    PENDING,
+    ACCEPTED,
+    REJECTED
+}.
+.
+--------------------------------------------------------------------------------
 Datei: C:\Bootcamp\fitconnect\fitconnect\backend\src\main\java\com\fitconnect\entity\User.java
 --------------------------------------------------------------------------------
 package com.fitconnect.entity;
 
+import jakarta.persistence.*;
+
+@Entity
+@Table(name = "users") // optional
 public class User {
+
+    @Id
     private String username;
+
     private String password;
+
+    public User() {}
 
     public User(String username, String password) {
         this.username = username;
@@ -293,10 +529,24 @@ public class User {
     }
 
     public String getUsername() { return username; }
-
     public String getPassword() { return password; }
-}
+
+    public void setUsername(String username) { this.username = username; }
+    public void setPassword(String password) { this.password = password; }
+}.
 .
+--------------------------------------------------------------------------------
+Datei: C:\Bootcamp\fitconnect\fitconnect\backend\src\main\java\com\fitconnect\entity\Visibility.java
+--------------------------------------------------------------------------------
+package com.fitconnect.entity;
+
+
+
+public enum Visibility {
+    PUBLIC,
+    FRIENDS_ONLY,
+    PRIVATE
+}.
 .
 --------------------------------------------------------------------------------
 Datei: C:\Bootcamp\fitconnect\fitconnect\backend\src\main\java\com\fitconnect\repository\ActivityRepository.java
@@ -310,8 +560,66 @@ import java.util.List;
 
 public interface ActivityRepository extends JpaRepository<Activity, Long> {
     List<Activity> findAllByOrderByTimestampDesc();
+    List<Activity> findByUserOrderByTimestampDesc(String user);
+
 }
 .
+.
+--------------------------------------------------------------------------------
+Datei: C:\Bootcamp\fitconnect\fitconnect\backend\src\main\java\com\fitconnect\repository\FriendshipRepository.java
+--------------------------------------------------------------------------------
+package com.fitconnect.repository;
+
+
+import com.fitconnect.entity.Friendship;
+import com.fitconnect.entity.FriendshipStatus;
+import com.fitconnect.entity.User;
+import org.springframework.data.jpa.repository.*;
+import org.springframework.data.repository.query.Param;
+
+import java.util.List;
+
+
+public interface FriendshipRepository extends JpaRepository<Friendship, Long> {
+
+    List<Friendship> findByAddresseeAndStatus(User addressee, FriendshipStatus status);
+
+    @Query("""
+    SELECT f FROM Friendship f
+    WHERE ((f.requester = :user1 AND f.addressee = :user2)
+       OR (f.requester = :user2 AND f.addressee = :user1))
+       AND f.status = 'ACCEPTED'
+    """)
+    List<Friendship> findFriendshipsBetween(@Param("user1") User u1, @Param("user2") User u2);
+    
+
+    @Query("""
+        SELECT f.addressee FROM Friendship f
+        WHERE f.requester = :user AND f.status = 'ACCEPTED'
+        UNION
+        SELECT f.requester FROM Friendship f
+        WHERE f.addressee = :user AND f.status = 'ACCEPTED'
+    """)
+    List<User> findAllFriendsOf(@Param("user") User user);
+}
+.
+.
+--------------------------------------------------------------------------------
+Datei: C:\Bootcamp\fitconnect\fitconnect\backend\src\main\java\com\fitconnect\repository\UserRepository.java
+--------------------------------------------------------------------------------
+package com.fitconnect.repository;
+
+import com.fitconnect.entity.User;
+
+import java.util.List;
+
+import org.springframework.data.jpa.repository.JpaRepository;
+
+public interface UserRepository extends JpaRepository<User, String> {
+
+    List<User> findByUsernameContainingIgnoreCase(String query);
+
+}.
 .
 --------------------------------------------------------------------------------
 Datei: C:\Bootcamp\fitconnect\fitconnect\backend\src\main\java\com\fitconnect\security\CorsConfig.java
@@ -369,9 +677,12 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                                     FilterChain filterChain)
             throws ServletException, IOException {
 
+        System.out.println("🔐 Auth-Header: " + request.getHeader("Authorization"));
+
         // ✅ komplett überspringen bei SSE-Endpunkt
-        if (request.getRequestURI().equals("/feed-stream")) {
-            SecurityContextHolder.clearContext(); // 🔒 wichtig
+        if (request.getRequestURI().equals("/activities/feed-stream")) {
+            // SSE Endpunkt => SecurityContext löschen / oder skip
+            SecurityContextHolder.clearContext();
             filterChain.doFilter(request, response);
             return;
         }
@@ -461,44 +772,19 @@ public class SecurityConfig {
 public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
     http
         .csrf(csrf -> csrf.disable())
+   
         .authorizeHttpRequests(auth -> auth
-            .requestMatchers("/auth/**", "/feed-stream").permitAll()
-                        .anyRequest().authenticated()
-        )
+        .requestMatchers("/auth/**", "/activities/feed-stream").permitAll()
+        .requestMatchers("/activities/**").authenticated()
+        .requestMatchers("/friends/**").authenticated()
+        .requestMatchers("/users/search").authenticated()
+        .anyRequest().denyAll()
+)
         .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class)
         .httpBasic(Customizer.withDefaults());
 
     return http.build();
 }
-}
-.
-.
---------------------------------------------------------------------------------
-Datei: C:\Bootcamp\fitconnect\fitconnect\backend\src\main\java\com\fitconnect\service\ActivityService.java
---------------------------------------------------------------------------------
-package com.fitconnect.service;
-
-import com.fitconnect.entity.Activity;
-import org.springframework.stereotype.Service;
-
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
-
-@Service
-public class ActivityService {
-
-    private final List<Activity> activities = Collections.synchronizedList(new ArrayList<>());
-
-    public Activity addActivity(String username, String text) {
-        Activity activity = new Activity(username, text);
-        activities.add(activity);
-        return activity;
-    }
-
-    public List<Activity> getAllActivities() {
-        return List.copyOf(activities);
-    }
 }
 .
 .
@@ -510,47 +796,46 @@ package com.fitconnect.service;
 import com.fitconnect.dto.AuthRequest;
 import com.fitconnect.dto.AuthResponse;
 import com.fitconnect.entity.User;
+import com.fitconnect.repository.UserRepository;
 import com.fitconnect.security.JwtUtil;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 
-import java.util.HashMap;
-import java.util.Map;
-
 @Service
 public class AuthService {
 
-    private final Map<String, User> users = new HashMap<>();
+    private final UserRepository userRepository;
     private final JwtUtil jwtUtil = new JwtUtil();
     private final BCryptPasswordEncoder encoder = new BCryptPasswordEncoder();
 
+    public AuthService(UserRepository userRepository) {
+        this.userRepository = userRepository;
+    }
+
     public AuthResponse register(AuthRequest request) {
-        if (users.containsKey(request.username)) {
+        if (userRepository.existsById(request.username)) {
             throw new RuntimeException("Benutzername ist bereits vergeben");
         }
-    
-        String hashedPassword = encoder.encode(request.password);
-        User user = new User(request.username, hashedPassword);
-        users.put(request.username, user);
-        String token = jwtUtil.generateToken(request.username);
+
+        User user = new User(request.username, encoder.encode(request.password));
+        userRepository.save(user);
+        String token = jwtUtil.generateToken(user.getUsername());
         return new AuthResponse(token);
     }
 
-public AuthResponse login(AuthRequest request) {
-    User user = users.get(request.username);
-    if (user == null) {
-        throw new RuntimeException("Benutzer nicht gefunden");
-    }
+    public AuthResponse login(AuthRequest request) {
+        User user = userRepository.findById(request.username)
+                .orElseThrow(() -> new RuntimeException("Benutzer nicht gefunden"));
 
-    if (!encoder.matches(request.password, user.getPassword())) {
-        throw new RuntimeException("Falsches Passwort");
-    }
+        if (!encoder.matches(request.password, user.getPassword())) {
+            throw new RuntimeException("Falsches Passwort");
+        }
 
-    String token = jwtUtil.generateToken(user.getUsername());
-    return new AuthResponse(token);
+        String token = jwtUtil.generateToken(user.getUsername());
+        return new AuthResponse(token);
+    }
 }
 
-}
 .
 .
 --------------------------------------------------------------------------------
@@ -594,7 +879,138 @@ public class FeedSseService {
             }
         }
     }
+
+    public void broadcastUpdate(Activity activity) {
+        for (SseEmitter emitter : clients) {
+            try {
+                emitter.send(SseEmitter.event()
+                    .name("activity-update")
+                    .data(activity));
+            } catch (IOException e) {
+                emitter.complete();
+                clients.remove(emitter);
+            }
+        }
+    }
+    
+    public void broadcastDelete(Long activityId) {
+        System.out.println("📣 DELETE wird gesendet an " + clients.size() + " Clients für ID " + activityId);
+    
+        for (SseEmitter emitter : clients) {
+            try {
+                emitter.send(SseEmitter.event()
+                    .name("activity-delete")
+                    .data(activityId));
+            } catch (IOException e) {
+                System.out.println("❌ Fehler beim Senden an einen Client: " + e.getMessage());
+                emitter.complete();
+                clients.remove(emitter);
+            }
+        }
+    }
+
+
+    public void broadcastFriendRequest(String targetUsername) {
+        for (SseEmitter emitter : clients) {
+            try {
+                emitter.send(SseEmitter.event()
+                    .name("friend-request")
+                    .data(targetUsername));
+            } catch (IOException e) {
+                emitter.complete();
+                clients.remove(emitter);
+            }
+        }
+    }
 }
+.
+.
+--------------------------------------------------------------------------------
+Datei: C:\Bootcamp\fitconnect\fitconnect\backend\src\main\java\com\fitconnect\service\FriendshipService.java
+--------------------------------------------------------------------------------
+package com.fitconnect.service;
+
+import com.fitconnect.entity.*;
+import com.fitconnect.repository.FriendshipRepository;
+import com.fitconnect.repository.UserRepository;
+import org.springframework.stereotype.Service;
+
+import java.util.List;
+
+@Service
+public class FriendshipService {
+
+    private final FriendshipRepository friendshipRepo;
+    private final UserRepository userRepo;
+
+    private final FeedSseService feedSseService;
+
+    public FriendshipService(FriendshipRepository friendshipRepo, UserRepository userRepo, FeedSseService feedSseService) {
+        this.friendshipRepo = friendshipRepo;
+        this.userRepo = userRepo;
+        this.feedSseService = feedSseService;
+    }
+
+    public void sendRequest(String requesterUsername, String addresseeUsername) {
+        if (requesterUsername.equals(addresseeUsername)) {
+            throw new IllegalArgumentException("Du kannst dich nicht selbst hinzufügen.");
+        }
+    
+        // Alphabetische Sortierung: requester = min(a, b), addressee = max(a, b)
+        String user1 = requesterUsername.compareTo(addresseeUsername) < 0 ? requesterUsername : addresseeUsername;
+        String user2 = requesterUsername.compareTo(addresseeUsername) < 0 ? addresseeUsername : requesterUsername;
+    
+        User requester = userRepo.findById(user1).orElseThrow();
+        User addressee = userRepo.findById(user2).orElseThrow();
+    
+        if (!friendshipRepo.findFriendshipsBetween(requester, addressee).isEmpty()) {
+            throw new IllegalStateException("Freundschaft existiert bereits.");
+        }
+    
+        friendshipRepo.save(new Friendship(requester, addressee, FriendshipStatus.PENDING));
+        feedSseService.broadcastFriendRequest(addresseeUsername); // original Ziel-Benutzer
+    }
+
+    public void respondToRequest(Long requestId, boolean accept) {
+        Friendship f = friendshipRepo.findById(requestId).orElseThrow();
+        f.setStatus(accept ? FriendshipStatus.ACCEPTED : FriendshipStatus.REJECTED);
+        friendshipRepo.save(f);
+    }
+
+    public List<User> listFriends(String username) {
+        User user = userRepo.findById(username).orElseThrow();
+        return friendshipRepo.findAllFriendsOf(user);
+    }
+
+    public List<Friendship> listPendingRequests(String username) {
+        User user = userRepo.findById(username).orElseThrow();
+        return friendshipRepo.findByAddresseeAndStatus(user, FriendshipStatus.PENDING);
+    }
+
+    public boolean areFriends(String userA, String userB) {
+        User u1 = userRepo.findById(userA).orElseThrow();
+        User u2 = userRepo.findById(userB).orElseThrow();
+        return !friendshipRepo.findFriendshipsBetween(u1, u2).isEmpty();
+    }
+
+
+    public String getFriendshipStatus(String currentUser, String otherUser) {
+        if (currentUser.equals(otherUser)) {
+            return "SELF";
+        }
+    
+        User requester = userRepo.findById(currentUser).orElse(null);
+        User addressee = userRepo.findById(otherUser).orElse(null);
+        if (requester == null || addressee == null) return "UNKNOWN";
+    
+        List<Friendship> friendships = friendshipRepo.findFriendshipsBetween(requester, addressee);
+        if (friendships.isEmpty()) return "NONE";
+    
+        // Nimm einfach den ersten Status (ggf. erweitern mit Prioritätslogik)
+        return friendships.get(0).getStatus().name();
+    }
+}
+
 .
 .
 --------------------------------------------------------------------------------
@@ -628,6 +1044,14 @@ server.port=8080
 .
 .
 --------------------------------------------------------------------------------
+Datei: C:\Bootcamp\fitconnect\fitconnect\backend\target\maven-archiver\pom.properties
+--------------------------------------------------------------------------------
+artifactId=backend
+groupId=com.fitconnect
+version=0.0.1-SNAPSHOT
+.
+.
+--------------------------------------------------------------------------------
 Datei: C:\Bootcamp\fitconnect\fitconnect\frontend\feed.html
 --------------------------------------------------------------------------------
 <!DOCTYPE html>
@@ -636,24 +1060,89 @@ Datei: C:\Bootcamp\fitconnect\fitconnect\frontend\feed.html
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>fitconnect – Feed</title>
-  <link rel="stylesheet" href="css/style.css">
+
+  <!-- Mapbox CSS -->
+  <link href="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css" rel="stylesheet" />
+  <link rel="stylesheet" href="css/style.css" />
 </head>
 <body>
   <header>
-    <h1>fitconnect Feed</h1>
+    <h1>fitconnect</h1>
     <span id="user-greeting"></span>
-    <button id="logout-btn">Logout</button>
+    <div>
+        
+    
+      <button onclick="window.location.href='profile.html'">Mein Profil</button>
+      <button onclick="window.location.href='freunde.html'">👥 Freunde</button>
+      
+      <button id="logout-btn">Logout</button>
+    </div>
   </header>
+
+
+  <!-- 🧑‍🔍 Nutzer-Suchleiste -->
+  <section style="text-align: center; margin-bottom: 2rem;">
+    <form id="user-search-form" style="display: inline-flex; gap: 0.5rem;">
+      <input type="text" id="search-query" placeholder="Benutzer suchen..." required />
+      <button type="submit">🔍</button>
+    </form>
+    <ul id="search-results" style="margin-top: 1rem; list-style: none;"></ul>
+  </section>
 
   <form id="activity-form">
     <input type="text" id="activity-input" placeholder="Was hast du gemacht?" required />
+    <input type="text" id="activity-location" placeholder="Ort per Kartenklick auswählen" />
+    <small style="text-align: center; display: block;">Klicke auf die Karte, um den Ort deiner Aktivität festzulegen</small>
+  
+    <select id="activity-visibility">
+      <option value="PUBLIC">Öffentlich</option>
+      <option value="FRIENDS_ONLY">Nur Freunde</option>
+      <option value="PRIVATE">Privat</option>
+    </select>
+  
     <button type="submit">Posten</button>
   </form>
 
   <ul id="feed-list"></ul>
   <p id="error-msg" style="color:red;"></p>
 
+  <!-- 🗺️ Karte -->
+  <div id="map" style="height: 300px; margin-top: 2rem;"></div>
+
+  <!-- Mapbox JS -->
+  <script src="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"></script>
   <script src="js/feed.js"></script>
+</body>
+</html>
+.
+.
+--------------------------------------------------------------------------------
+Datei: C:\Bootcamp\fitconnect\fitconnect\frontend\freunde.html
+--------------------------------------------------------------------------------
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>fitconnect – Freunde</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <header>
+    <h1>Meine Freunde</h1>
+    <span id="user-greeting"></span>
+    <button onclick="window.location.href='feed.html'">Zurück zum Feed</button>
+  </header>
+
+  <section>
+    <h2>Freundesliste</h2>
+    <ul id="friends-list"></ul>
+
+    <h2>Freundschaftsanfragen</h2>
+    <ul id="requests-list"></ul>
+  </section>
+
+  <script src="js/friends.js"></script>
 </body>
 </html>
 .
@@ -685,6 +1174,41 @@ Datei: C:\Bootcamp\fitconnect\fitconnect\frontend\index.html
 
   <p id="error-msg" style="color:red;"></p>
   <script src="js/login.js"></script>
+</body>
+</html>
+.
+.
+--------------------------------------------------------------------------------
+Datei: C:\Bootcamp\fitconnect\fitconnect\frontend\profile.html
+--------------------------------------------------------------------------------
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>fitconnect – Mein Profil</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header>
+    <h1>Mein Profil</h1>
+    <span id="user-greeting"></span>
+    
+
+    <button onclick="window.location.href='freunde.html'">👥 Freunde</button>
+
+    <button onclick="window.location.href='feed.html'">Zurück zum Feed</button>
+  </header>
+
+  <p id="friend-status"></p>
+  <button id="add-friend-btn" style="display: none;">Freund hinzufügen</button>
+  
+  <section>
+    <p id="stats"></p>
+    <ul id="activity-list"></ul>
+  </section>
+
+  <script src="js/profile.js"></script>
 </body>
 </html>
 .
@@ -800,22 +1324,419 @@ body {
   
   #error-msg, #success-msg {
     text-align: center;
-  }.
+  }
+
+  /* Mapbox Popup Styling */
+.mapboxgl-popup-content {
+  font-family: Arial, sans-serif;
+  font-size: 0.9rem;
+  line-height: 1.4;
+  max-width: 250px;
+  padding: 10px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+  border-radius: 4px;
+}
+
+.mapboxgl-popup-content strong {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.mapboxgl-popup-content small {
+  color: #555;
+  display: block;
+  margin-top: 6px;
+  font-size: 0.8rem;
+}
+
+.mapboxgl-popup-close-button::before {
+  content: "×";
+  font-size: 1.2rem;
+  color: #333;
+ 
+  line-height: 1;
+}
+
+
+
+
+
+.mapboxgl-popup-close-button:focus {
+  outline: none;
+  box-shadow: none;
+}
+
+.
 .
 --------------------------------------------------------------------------------
 Datei: C:\Bootcamp\fitconnect\fitconnect\frontend\js\feed.js
 --------------------------------------------------------------------------------
 (async function () {
+  const token = localStorage.getItem("jwt_token");
+  const errorMsg = document.getElementById("error-msg");
+  const feedList = document.getElementById("feed-list");
+  const logoutBtn = document.getElementById("logout-btn");
+  const activityForm = document.getElementById("activity-form");
+  const activityInput = document.getElementById("activity-input");
+  const activityLocation = document.getElementById("activity-location");
+  const userGreeting = document.getElementById("user-greeting");
+
+  // Prüfen, ob ein Token vorhanden ist
+  if (!token) {
+    errorMsg.textContent = "Nicht eingeloggt. Bitte zuerst anmelden.";
+    return;
+  }
+
+  // Username aus dem JWT-Token herauslesen
+  let username = "";
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1]));
+    username = payload.sub;
+    userGreeting.textContent = "👋 Willkommen, " + username;
+  } catch (err) {
+    userGreeting.textContent = "";
+  }
+
+  // Map initialisieren
+  mapboxgl.accessToken = "pk.eyJ1IjoibmFnYXJkIiwiYSI6ImNtYXhvcmx5MjAwanMyd3F1MGF0c2FpbHAifQ.y41D8qaCugwI3rVrNV0AJQ";
+  const map = new mapboxgl.Map({
+    container: "map",
+    style: "mapbox://styles/mapbox/streets-v12",
+    center: [8.63899, 49.64309], // z. B. Darmstadt
+    zoom: 11
+  });
+
+  let currentMarker = null;
+  const activityMarkers = new Map();
+  const deletedIds = new Set();
+
+  // Klick-Event auf der Karte => Marker setzen + Location ins Input
+  map.on('click', function (e) {
+    const { lng, lat } = e.lngLat;
+    if (currentMarker) currentMarker.remove();
+    currentMarker = new mapboxgl.Marker()
+      .setLngLat([lng, lat])
+      .setPopup(new mapboxgl.Popup({ offset: 25 }).setText("Ort ausgewählt"))
+      .addTo(map);
+    activityLocation.value = `${lng.toFixed(5)},${lat.toFixed(5)}`;
+  });
+
+  // Marker auf die Karte bringen, falls Location vorhanden
+  function addMarkerIfLocationExists(activity) {
+    // Falls bereits "gelöscht" markiert, ignorieren
+    if (deletedIds.has(activity.id)) {
+      console.log("⚪ Marker unterdrückt für gelöschte ID:", activity.id);
+      return;
+    }
+
+    if (activity.location) {
+      const [lng, lat] = activity.location.split(',').map(Number);
+
+      // Einen evtl. vorhandenen Marker für dieselbe ID entfernen
+      if (activityMarkers.has(activity.id)) {
+        activityMarkers.get(activity.id).remove();
+      }
+
+      // Popup-Info definieren
+      const popup = new mapboxgl.Popup({ offset: 25, maxWidth: '200px' })
+        .setHTML(`
+          <strong>${activity.user}</strong><br/>
+          ${activity.text}<br/>
+          <small>${new Date(activity.timestamp).toLocaleString('de-DE')}</small>
+        `);
+
+      // Neuen Marker erstellen
+      const marker = new mapboxgl.Marker()
+        .setLngLat([lng, lat])
+        .setPopup(popup)
+        .addTo(map);
+
+      // Hover-Effekt, damit das Popup beim Drüberfahren erscheint
+      marker.getElement().dataset.markerId = activity.id;
+      marker.getElement().addEventListener('mouseenter', () => popup.addTo(map));
+      marker.getElement().addEventListener('mouseleave', () => popup.remove());
+
+      // In der Map speichern
+      activityMarkers.set(activity.id, marker);
+      console.log("📍 Marker gesetzt für ID:", activity.id);
+    }
+  }
+
+  // Feed vom Server holen und listen
+  async function loadFeed() {
+    try {
+      const response = await fetch("http://localhost:8080/activities", {
+        headers: { Authorization: "Bearer " + token }
+      });
+      if (!response.ok) throw new Error("Fehler beim Laden");
+
+      const activities = await response.json();
+      feedList.innerHTML = "";
+      // Vorherige Marker entfernen
+      activityMarkers.forEach(marker => marker.remove());
+      activityMarkers.clear();
+      deletedIds.clear();
+
+      // Jeden Eintrag anfügen
+      activities.forEach(activity => {
+        appendToFeed(activity);
+        addMarkerIfLocationExists(activity);
+      });
+    } catch (err) {
+      errorMsg.textContent = "Fehler beim Laden des Feeds.";
+    }
+  }
+
+  // Eine einzelne Aktivität in die Feed-Liste einfügen
+  function appendToFeed(activity) {
+    const li = document.createElement("li");
+    li.dataset.id = activity.id;
+
+    // Icon je nach Sichtbarkeit
+    const visibilityIcon = {
+      PUBLIC: "🔓 Öffentlich",
+      FRIENDS_ONLY: "🫂 Nur Freunde",
+      PRIVATE: "🔒 Privat"
+    }[activity.visibility || "PUBLIC"];
+
+    li.innerHTML = `
+      <span>
+        <a href="profile.html?user=${activity.user}">${activity.user}</a> – <span data-id="${activity.id}">${activity.text}</span><br/>
+        <small style="color: #666;">${visibilityIcon}</small>
+      </span>
+      ${
+        activity.user?.toLowerCase?.() === username?.toLowerCase?.()
+          ? `
+            <button onclick="editActivity(${activity.id})">✎</button>
+            <button onclick="deleteActivity(${activity.id})">🗑️</button>
+          `
+          : ""
+      }
+    `;
+
+    // Etwaige Duplikate vorher entfernen
+    const existing = document.querySelector(`li[data-id="${activity.id}"]`);
+    if (existing) existing.remove();
+
+    // Ganz oben einfügen
+    feedList.insertBefore(li, feedList.firstChild);
+  }
+
+  // Formular zum Posten einer neuen Aktivität
+  activityForm.addEventListener("submit", async function (e) {
+    e.preventDefault();
+    const text = activityInput.value.trim();
+    const location = activityLocation.value.trim();
+    if (!text) return;
+
+    const visibility = document.getElementById("activity-visibility").value;
+
+    const response = await fetch("http://localhost:8080/activities", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer " + token
+      },
+      body: JSON.stringify({ text, location, visibility })
+    });
+
+    if (!response.ok) return;
+    const createdActivity = await response.json();
+    appendToFeed(createdActivity);
+    addMarkerIfLocationExists(createdActivity);
+    activityInput.value = "";
+    activityLocation.value = "";
+  });
+
+  // Logout-Button
+  logoutBtn.addEventListener("click", () => {
+    localStorage.removeItem("jwt_token");
+    window.location.href = "index.html";
+  });
+
+  // Bearbeiten einer Aktivität
+  window.editActivity = async function (id) {
+    const newText = prompt("Neue Aktivität:");
+    if (!newText) return;
+
+    let location = null;
+    // Wenn für diese ID ein Marker existiert, nimm dessen Koordinaten
+    if (activityMarkers.has(id)) {
+      const lngLat = activityMarkers.get(id).getLngLat();
+      location = `${lngLat.lng.toFixed(5)},${lngLat.lat.toFixed(5)}`;
+    }
+
+    await fetch("http://localhost:8080/activities/" + id, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer " + token
+      },
+      body: JSON.stringify({ text: newText, location })
+    });
+
+    // Keine direkte Aktualisierung hier, da es per SSE geschieht (activity-update)
+  };
+
+  // Löschen einer Aktivität
+  window.deleteActivity = async function (id) {
+    if (!confirm("Wirklich löschen?")) return;
+  
+    const response = await fetch("http://localhost:8080/activities/" + id, {
+      method: "DELETE",
+      headers: { Authorization: "Bearer " + token }
+    });
+  
+    if (response.ok) {
+      // **Sofort** den Eintrag im Feed entfernen
+      const li = document.querySelector(`li[data-id="${id}"]`);
+      if (li) li.remove();
+  
+      // ... und gleich den Marker entfernen
+      if (activityMarkers.has(id)) {
+        const marker = activityMarkers.get(id);
+        marker.remove();
+        marker.setPopup(null);
+        const el = marker.getElement();
+        if (el && el.parentNode) {
+          el.parentNode.removeChild(el);
+        }
+        activityMarkers.delete(id);
+      }
+      if (currentMarker) {
+        currentMarker.remove();
+        currentMarker = null;
+      }
+      console.log("🗑️ DELETE erfolgreich – warte zusätzlich auf SSE für die anderen.");
+    }
+  };
+
+  // Feed beim Start laden
+  loadFeed();
+
+  // SSE-Verbindung aufbauen
+  const eventSource = new EventSource("http://localhost:8080/activities/feed-stream");
+
+  // Neue Aktivität kommt rein
+  eventSource.addEventListener("activity", (event) => {
+    const activity = JSON.parse(event.data);
+    appendToFeed(activity);
+    addMarkerIfLocationExists(activity);
+  });
+
+  // Aktivität wurde bearbeitet
+  eventSource.addEventListener("activity-update", (event) => {
+    const updated = JSON.parse(event.data);
+
+    // Text im Feed austauschen
+    const span = document.querySelector(`span[data-id="${updated.id}"]`);
+    if (span) span.textContent = updated.text;
+
+    // Falls ein Marker vorhanden ist, entfernen und neu setzen
+    if (activityMarkers.has(updated.id)) {
+      activityMarkers.get(updated.id).remove();
+      activityMarkers.delete(updated.id);
+    }
+    addMarkerIfLocationExists(updated);
+  });
+
+  // Aktivität wurde gelöscht
+  eventSource.addEventListener("activity-delete", (event) => {
+    const id = parseInt(event.data);
+    console.log("SSE Delete-Event empfangen:", event.data);
+    // 1) Das <li> aus der Feed-Liste entfernen
+    const li = document.querySelector(`li[data-id="${id}"]`);
+    if (li) li.remove();
+
+    // 2) Marker entfernen
+    if (activityMarkers.has(id)) {
+        const marker = activityMarkers.get(id);
+
+        try {
+            marker.remove();
+        } catch (err) {
+            console.warn("⚠️ marker.remove() fehlgeschlagen:", err);
+        }
+
+        // Optional: Popup „entkoppeln“
+        marker.setPopup(null);
+
+        // 3) Map-Eintrag entfernen
+        activityMarkers.delete(id);
+
+        // Eventuelles DOM-Element vom Marker-Icon nochmal entfernen
+        const el = marker.getElement();
+        if (el && el.parentNode) {
+            el.parentNode.removeChild(el);
+        }
+    }
+});
+
+eventSource.addEventListener("friend-request", (event) => {
+  const targetUsername = event.data;
+
+  if (targetUsername === username) {
+    const notice = document.createElement("div");
+    notice.textContent = "🔔 Neue Freundschaftsanfrage erhalten!";
+    notice.style.background = "#0077cc";
+    notice.style.color = "white";
+    notice.style.padding = "1rem";
+    notice.style.textAlign = "center";
+    notice.style.fontWeight = "bold";
+    notice.style.marginBottom = "1rem";
+
+    document.body.prepend(notice);
+
+    setTimeout(() => notice.remove(), 10000);
+  }
+});
+
+ // 🔍 Nutzer-Suche
+ const searchForm = document.getElementById("user-search-form");
+ const searchResults = document.getElementById("search-results");
+
+ if (searchForm && searchResults) {
+   searchForm.addEventListener("submit", async (e) => {
+     e.preventDefault();
+     const query = document.getElementById("search-query").value.trim();
+     if (!query) return;
+
+     try {
+       const res = await fetch("http://localhost:8080/users/search?query=" + encodeURIComponent(query), {
+         headers: { Authorization: "Bearer " + token }
+       });
+
+       if (!res.ok) throw new Error();
+
+       const users = await res.json();
+       searchResults.innerHTML = "";
+       if (users.length === 0) {
+         searchResults.innerHTML = "<li>Kein Benutzer gefunden.</li>";
+       } else {
+         users.forEach(user => {
+           const li = document.createElement("li");
+           li.innerHTML = `<a href="profile.html?user=${user.username}">${user.username}</a>`;
+           searchResults.appendChild(li);
+         });
+       }
+     } catch {
+       searchResults.innerHTML = "<li>Fehler bei der Suche.</li>";
+     }
+   });
+ }
+})();.
+.
+--------------------------------------------------------------------------------
+Datei: C:\Bootcamp\fitconnect\fitconnect\frontend\js\friends.js
+--------------------------------------------------------------------------------
+(async function () {
     const token = localStorage.getItem("jwt_token");
-    const errorMsg = document.getElementById("error-msg");
-    const feedList = document.getElementById("feed-list");
-    const logoutBtn = document.getElementById("logout-btn");
-    const activityForm = document.getElementById("activity-form");
-    const activityInput = document.getElementById("activity-input");
     const userGreeting = document.getElementById("user-greeting");
+    const friendsList = document.getElementById("friends-list");
+    const requestsList = document.getElementById("requests-list");
   
     if (!token) {
-      errorMsg.textContent = "Nicht eingeloggt. Bitte zuerst anmelden.";
+      userGreeting.textContent = "Nicht eingeloggt.";
       return;
     }
   
@@ -823,108 +1744,52 @@ Datei: C:\Bootcamp\fitconnect\fitconnect\frontend\js\feed.js
     try {
       const payload = JSON.parse(atob(token.split('.')[1]));
       username = payload.sub;
-      userGreeting.textContent = "👋 Willkommen, " + username;
+      userGreeting.textContent = "👤 Eingeloggt als: " + username;
     } catch (err) {
       userGreeting.textContent = "";
     }
   
-    async function loadFeed() {
-      try {
-        const response = await fetch("http://localhost:8080/activities", {
-          headers: { "Authorization": "Bearer " + token }
-        });
-  
-        if (!response.ok) throw new Error("Fehler beim Laden");
-  
-        const activities = await response.json();
-        feedList.innerHTML = "";
-        activities.forEach(activity => appendToFeed(activity));
-      } catch (err) {
-        errorMsg.textContent = "Fehler beim Laden des Feeds.";
-      }
+    async function loadFriends() {
+      const res = await fetch("http://localhost:8080/friends", {
+        headers: { Authorization: "Bearer " + token }
+      });
+      const users = await res.json();
+      friendsList.innerHTML = "";
+      users.forEach(user => {
+        const li = document.createElement("li");
+        li.innerHTML = `<a href="profile.html?user=${user.username}">${user.username}</a>`;
+        friendsList.appendChild(li);
+      });
     }
   
-    function appendToFeed(activity) {
-      const li = document.createElement("li");
-      li.innerHTML = `
-        <span>${activity.user} – <span data-id="${activity.id}">${activity.text}</span></span>
-        ${activity.user === username ? `
-          <button onclick="editActivity(${activity.id})">✎</button>
-          <button onclick="deleteActivity(${activity.id})">🗑️</button>
-        ` : ""}
-      `;
-      feedList.insertBefore(li, feedList.firstChild);
+    async function loadRequests() {
+      const res = await fetch("http://localhost:8080/friends/requests", {
+        headers: { Authorization: "Bearer " + token }
+      });
+      const requests = await res.json();
+      requestsList.innerHTML = "";
+      requests.forEach(req => {
+        const li = document.createElement("li");
+        li.innerHTML = `
+          <a href="profile.html?user=${req.requester.username}">${req.requester.username}</a>
+          <button onclick="respond(${req.id}, true)">✔️</button>
+          <button onclick="respond(${req.id}, false)">❌</button>
+        `;
+        requestsList.appendChild(li);
+      });
     }
   
-    activityForm.addEventListener("submit", async function (e) {
-      e.preventDefault();
-      const text = activityInput.value.trim();
-      if (!text) return;
-  
-      await fetch("http://localhost:8080/activities", {
+    window.respond = async function (id, accept) {
+      await fetch("http://localhost:8080/friends/respond/" + id + "?accept=" + accept, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": "Bearer " + token
-        },
-        body: JSON.stringify({ text: text })
+        headers: { Authorization: "Bearer " + token }
       });
-  
-      // direkt lokal anzeigen
-      const newActivity = {
-        user: username,
-        text: text,
-        id: Date.now()
-      };
-      appendToFeed(newActivity);
-  
-      activityInput.value = "";
-    });
-  
-    logoutBtn.addEventListener("click", () => {
-      localStorage.removeItem("jwt_token");
-      window.location.href = "index.html";
-    });
-  
-    window.editActivity = async function (id) {
-      const newText = prompt("Neue Aktivität:");
-      if (!newText) return;
-  
-      await fetch("http://localhost:8080/activities/" + id, {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": "Bearer " + token
-        },
-        body: JSON.stringify({ text: newText })
-      });
-  
-      await loadFeed();
+      await loadFriends();
+      await loadRequests();
     };
   
-    window.deleteActivity = async function (id) {
-      if (!confirm("Wirklich löschen?")) return;
-  
-      await fetch("http://localhost:8080/activities/" + id, {
-        method: "DELETE",
-        headers: {
-          "Authorization": "Bearer " + token
-        }
-      });
-  
-      await loadFeed();
-    };
-  
-    loadFeed();
-  
-    // 🔴 Live-Updates per SSE
-    const eventSource = new EventSource("http://localhost:8080/feed-stream");
-    eventSource.addEventListener("activity", (event) => {
-      const activity = JSON.parse(event.data);
-      if (activity.user !== username) {
-        appendToFeed(activity);
-      }
-    });
+    await loadFriends();
+    await loadRequests();
   })();
   .
 .
@@ -956,6 +1821,88 @@ document.getElementById("login-form").addEventListener("submit", async function 
     errorMsg.textContent = "Login fehlgeschlagen. Bitte überprüfe deine Eingaben.";
   }
 });
+.
+.
+--------------------------------------------------------------------------------
+Datei: C:\Bootcamp\fitconnect\fitconnect\frontend\js\profile.js
+--------------------------------------------------------------------------------
+Willkommen(async function () {
+  const token = localStorage.getItem("jwt_token");
+  const greeting = document.getElementById("user-greeting");
+  const list = document.getElementById("activity-list");
+  const stats = document.getElementById("stats");
+  const addFriendBtn = document.getElementById("add-friend-btn");
+  const friendStatus = document.getElementById("friend-status");
+
+  const urlParams = new URLSearchParams(window.location.search);
+  const targetUser = urlParams.get("user");
+
+  if (!token) {
+    greeting.textContent = "Nicht eingeloggt.";
+    return;
+  }
+
+  let currentUser = "";
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1]));
+    currentUser = payload.sub;
+    greeting.textContent = "👤 Eingeloggt als: " + currentUser;
+  } catch (err) {
+    greeting.textContent = "";
+  }
+
+  const viewedUser = targetUser || currentUser;
+
+  // Aktivitäten laden
+  try {
+    const response = await fetch(viewedUser === currentUser
+      ? "http://localhost:8080/activities/me/activities"
+      : "http://localhost:8080/activities?user=" + viewedUser,
+      {
+        headers: { "Authorization": "Bearer " + token }
+      });
+
+    if (!response.ok) throw new Error("Fehler beim Laden");
+
+    const data = await response.json();
+    stats.textContent = `${viewedUser === currentUser
+      ? "Du hast"
+      : "Dieser Nutzer hat"} insgesamt ${data.length} Aktivitäten erfasst.`;
+
+    list.innerHTML = "";
+    data.forEach(a => {
+      const li = document.createElement("li");
+      li.textContent = `${a.text} (${new Date(a.timestamp).toLocaleString()})`;
+      list.appendChild(li);
+    });
+
+  } catch (err) {
+    stats.textContent = "Fehler beim Laden der Aktivitäten.";
+  }
+
+  // Freundschaftsstatus nur anzeigen, wenn fremdes Profil
+  if (viewedUser !== currentUser) {
+    const res = await fetch(`http://localhost:8080/friends/${viewedUser}/status`, {
+      headers: { Authorization: "Bearer " + token }
+    });
+    const status = await res.text();
+    friendStatus.textContent = "Beziehungsstatus: " + status;
+
+    if (status === "NONE") {
+      addFriendBtn.style.display = "inline-block";
+      addFriendBtn.addEventListener("click", async () => {
+        const req = await fetch(`http://localhost:8080/friends/request/${viewedUser}`, {
+          method: "POST",
+          headers: { Authorization: "Bearer " + token }
+        });
+        if (req.ok) {
+          friendStatus.textContent = "Anfrage gesendet!";
+          addFriendBtn.style.display = "none";
+        }
+      });
+    }
+  }
+})();
 .
 .
 --------------------------------------------------------------------------------

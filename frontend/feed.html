@@ -4,24 +4,57 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>fitconnect – Feed</title>
-  <link rel="stylesheet" href="css/style.css">
+
+  <!-- Mapbox CSS -->
+  <link href="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css" rel="stylesheet" />
+  <link rel="stylesheet" href="css/style.css" />
 </head>
 <body>
   <header>
-    <h1>fitconnect Feed</h1>
+    <h1>fitconnect</h1>
     <span id="user-greeting"></span>
-    <button onclick="window.location.href='profile.html'">Mein Profil</button>
-    <button id="logout-btn">Logout</button>
+    <div>
+        
+    
+      <button onclick="window.location.href='profile.html'">Mein Profil</button>
+      <button id="friends-btn">👥 Freunde</button>
+      
+      <button id="logout-btn">Logout</button>
+    </div>
   </header>
+
+
+  <!-- 🧑‍🔍 Nutzer-Suchleiste -->
+  <section style="text-align: center; margin-bottom: 2rem;">
+    <form id="user-search-form" style="display: inline-flex; gap: 0.5rem;">
+      <input type="text" id="search-query" placeholder="Benutzer suchen..." required />
+      <button type="submit">🔍</button>
+    </form>
+    <ul id="search-results" style="margin-top: 1rem; list-style: none;"></ul>
+  </section>
 
   <form id="activity-form">
     <input type="text" id="activity-input" placeholder="Was hast du gemacht?" required />
+    <input type="text" id="activity-location" placeholder="Ort per Kartenklick auswählen" />
+    <small style="text-align: center; display: block;">Klicke auf die Karte, um den Ort deiner Aktivität festzulegen</small>
+  
+    <select id="activity-visibility">
+      <option value="PUBLIC">Öffentlich</option>
+      <option value="FRIENDS_ONLY">Nur Freunde</option>
+      <option value="PRIVATE">Privat</option>
+    </select>
+  
     <button type="submit">Posten</button>
   </form>
 
   <ul id="feed-list"></ul>
   <p id="error-msg" style="color:red;"></p>
 
+  <!-- 🗺️ Karte -->
+  <div id="map" style="height: 300px; margin-top: 2rem;"></div>
+
+  <!-- Mapbox JS -->
+  <script src="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"></script>
   <script src="js/feed.js"></script>
 </body>
 </html>

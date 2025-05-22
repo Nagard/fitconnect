@@ -22,7 +22,9 @@ public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
    
         .authorizeHttpRequests(auth -> auth
         .requestMatchers("/auth/**", "/activities/feed-stream").permitAll()
-        .requestMatchers("/activities/**", "/friends/**").authenticated()
+        .requestMatchers("/activities/**").authenticated()
+        .requestMatchers("/friends/**").authenticated()
+        .requestMatchers("/users/search").authenticated()
         .anyRequest().denyAll()
 )
         .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class)

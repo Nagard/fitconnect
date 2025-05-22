@@ -9,6 +9,7 @@ C:\Bootcamp\fitconnect\fitconnect\backend\src\main\java\com\fitconnect\repositor
 C:\Bootcamp\fitconnect\fitconnect\backend\src\main\java\com\fitconnect\security\SecurityConfig.java
 C:\Bootcamp\fitconnect\fitconnect\backend\src\main\java\com\fitconnect\entity\FriendshipStatus.java
 C:\Bootcamp\fitconnect\fitconnect\backend\src\main\java\com\fitconnect\entity\User.java
+C:\Bootcamp\fitconnect\fitconnect\backend\src\main\java\com\fitconnect\controller\UserController.java
 C:\Bootcamp\fitconnect\fitconnect\backend\src\main\java\com\fitconnect\controller\ActivityController.java
 C:\Bootcamp\fitconnect\fitconnect\backend\src\main\java\com\fitconnect\controller\FriendshipController.java
 C:\Bootcamp\fitconnect\fitconnect\backend\src\main\java\com\fitconnect\dto\ActivityRequest.java
