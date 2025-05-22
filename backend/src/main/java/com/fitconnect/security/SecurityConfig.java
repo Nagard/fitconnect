@@ -26,6 +26,9 @@ public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         .requestMatchers("/friends/**").authenticated()
         .requestMatchers("/users/search").authenticated()
         .requestMatchers("/messages/**").authenticated()
+        .requestMatchers("/groups/**").authenticated()
+        .requestMatchers("/group-messages/**").authenticated()
+        
         .anyRequest().denyAll()
 )
         .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class)

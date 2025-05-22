@@ -299,6 +299,181 @@ public class FriendshipController {
 .
 .
 --------------------------------------------------------------------------------
+Datei: C:\Bootcamp\fitconnect\fitconnect\backend\src\main\java\com\fitconnect\controller\GroupController.java
+--------------------------------------------------------------------------------
+package com.fitconnect.controller;
+
+
+import com.fitconnect.entity.Group;
+import com.fitconnect.entity.GroupParticipant;
+import com.fitconnect.entity.User;
+import com.fitconnect.repository.GroupParticipantRepository;
+import com.fitconnect.repository.GroupRepository;
+import com.fitconnect.repository.UserRepository;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+
+@RestController
+@RequestMapping("/groups")
+public class GroupController {
+
+    private final GroupRepository groupRepo;
+    private final UserRepository userRepo;
+    private final GroupParticipantRepository participantRepo;
+
+    public GroupController(GroupRepository groupRepo, UserRepository userRepo, GroupParticipantRepository participantRepo) {
+        this.groupRepo = groupRepo;
+        this.userRepo = userRepo;
+        this.participantRepo = participantRepo;
+    }
+
+    @PostMapping
+    public ResponseEntity<Group> createGroup(@RequestParam String name, Authentication auth) {
+        Group group = new Group();
+        group.setName(name);
+        group.setCreatedBy(auth.getName());
+        groupRepo.save(group);
+
+        User creator = userRepo.findById(auth.getName()).orElseThrow();
+        participantRepo.save(new GroupParticipant(group, creator, GroupParticipant.Role.ADMIN));
+
+        return ResponseEntity.ok(group);
+    }
+
+    @PostMapping("/{id}/invite")
+    public ResponseEntity<?> inviteToGroup(
+            @PathVariable Long id,
+            @RequestParam String friendUsername,
+            Authentication auth) {
+
+        String currentUser = auth.getName();
+
+        // ✅ Nur Admins dürfen einladen
+        boolean isAdmin = participantRepo
+            .findByGroupIdAndUserUsername(id, currentUser)
+            .map(p -> p.getRole() == GroupParticipant.Role.ADMIN)
+            .orElse(false);
+
+        if (!isAdmin) {
+            return ResponseEntity.status(403).body("Nur Admins dürfen Mitglieder einladen.");
+        }
+
+        // ⛔ Bereits Mitglied?
+        if (participantRepo.existsByGroupIdAndUserUsername(id, friendUsername)) {
+            return ResponseEntity.ok("Schon Mitglied.");
+        }
+
+        Group group = groupRepo.findById(id).orElseThrow();
+        User friend = userRepo.findById(friendUsername).orElseThrow();
+
+        participantRepo.save(new GroupParticipant(group, friend, GroupParticipant.Role.MEMBER));
+        return ResponseEntity.ok().build();
+    }
+    @GetMapping
+    public ResponseEntity<List<Group>> myGroups(Authentication auth) {
+        List<GroupParticipant> participation = participantRepo.findByUserUsername(auth.getName());
+        List<Group> result = participation.stream()
+            .map(GroupParticipant::getGroup)
+            .toList();
+        return ResponseEntity.ok(result);
+    }
+
+    @GetMapping("/{id}/members")
+    public ResponseEntity<List<User>> getGroupMembers(@PathVariable Long id, Authentication auth) {
+        String currentUser = auth.getName();
+        boolean isMember = participantRepo.existsByGroupIdAndUserUsername(id, currentUser);
+        if (!isMember) return ResponseEntity.status(403).build();
+
+        return ResponseEntity.ok(participantRepo.findUsersByGroupId(id));
+    }
+
+
+    @GetMapping("/{id}")
+    public ResponseEntity<Group> getGroup(@PathVariable Long id, Authentication auth) {
+        String currentUser = auth.getName();
+        boolean isMember = participantRepo.existsByGroupIdAndUserUsername(id, currentUser);
+        if (!isMember) return ResponseEntity.status(403).build();
+
+        return ResponseEntity.of(groupRepo.findById(id));
+    }
+
+
+
+}
+.
+.
+--------------------------------------------------------------------------------
+Datei: C:\Bootcamp\fitconnect\fitconnect\backend\src\main\java\com\fitconnect\controller\GroupMessageController.java
+--------------------------------------------------------------------------------
+package com.fitconnect.controller;
+
+import com.fitconnect.entity.Group;
+import com.fitconnect.entity.GroupMessage;
+import com.fitconnect.entity.User;
+import com.fitconnect.repository.GroupMessageRepository;
+import com.fitconnect.repository.GroupParticipantRepository;
+import com.fitconnect.repository.GroupRepository;
+import com.fitconnect.repository.UserRepository;
+import com.fitconnect.service.FeedSseService;
+
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+
+@RestController
+@RequestMapping("/group-messages")
+public class GroupMessageController {
+
+    private final GroupRepository groupRepo;
+    private final GroupParticipantRepository participantRepo;
+    private final GroupMessageRepository messageRepo;
+    private final UserRepository userRepo;
+    private final FeedSseService feedSseService;
+
+    public GroupMessageController(GroupRepository groupRepo, GroupParticipantRepository participantRepo,
+                                  GroupMessageRepository messageRepo, UserRepository userRepo, FeedSseService feedSseService) {
+        this.groupRepo = groupRepo;
+        this.participantRepo = participantRepo;
+        this.messageRepo = messageRepo;
+        this.userRepo = userRepo;
+        this.feedSseService=feedSseService;
+    }
+
+    @PostMapping("/{groupId}")
+    public ResponseEntity<?> sendMessage(@PathVariable Long groupId,
+                                         @RequestParam String text,
+                                         Authentication auth) {
+        String sender = auth.getName();
+        boolean isMember = participantRepo.existsByGroupIdAndUserUsername(groupId, sender);
+        if (!isMember) return ResponseEntity.status(403).build();
+
+        Group group = groupRepo.findById(groupId).orElseThrow();
+        User user = userRepo.findById(sender).orElseThrow();
+
+        messageRepo.save(new GroupMessage(group, user, text));
+        feedSseService.broadcastGroupMessage(groupId, sender);
+
+        return ResponseEntity.ok().build();
+    }
+
+    @GetMapping("/{groupId}")
+    public ResponseEntity<List<GroupMessage>> getMessages(@PathVariable Long groupId, Authentication auth) {
+        String user = auth.getName();
+        boolean isMember = participantRepo.existsByGroupIdAndUserUsername(groupId, user);
+        if (!isMember) return ResponseEntity.status(403).build();
+
+        Group group = groupRepo.findById(groupId).orElseThrow();
+        return ResponseEntity.ok(messageRepo.findByGroupOrderByTimestampAsc(group));
+    }
+}
+.
+.
+--------------------------------------------------------------------------------
 Datei: C:\Bootcamp\fitconnect\fitconnect\backend\src\main\java\com\fitconnect\controller\MessageController.java
 --------------------------------------------------------------------------------
 package com.fitconnect.controller;
@@ -629,6 +804,177 @@ public enum FriendshipStatus {
 }.
 .
 --------------------------------------------------------------------------------
+Datei: C:\Bootcamp\fitconnect\fitconnect\backend\src\main\java\com\fitconnect\entity\Group.java
+--------------------------------------------------------------------------------
+package com.fitconnect.entity;
+
+import java.time.LocalDateTime;
+
+import jakarta.persistence.Entity;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
+
+@Entity
+@Table(name = "\"group\"") // escaped table name
+public class Group {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    private String name;
+
+    private String createdBy;
+
+    private LocalDateTime createdAt = LocalDateTime.now();
+
+    public Long getId() {
+        return id;
+    }
+
+    public String getName() {
+        return name;
+    }
+
+    public String getCreatedBy() {
+        return createdBy;
+    }
+
+    public LocalDateTime getCreatedAt() {
+        return createdAt;
+    }
+
+    public void setId(Long id) {
+        this.id = id;
+    }
+
+    public void setName(String name) {
+        this.name = name;
+    }
+
+    public void setCreatedBy(String createdBy) {
+        this.createdBy = createdBy;
+    }
+
+    public void setCreatedAt(LocalDateTime createdAt) {
+        this.createdAt = createdAt;
+    }
+
+    // Getter/Setter ...
+}.
+.
+--------------------------------------------------------------------------------
+Datei: C:\Bootcamp\fitconnect\fitconnect\backend\src\main\java\com\fitconnect\entity\GroupMessage.java
+--------------------------------------------------------------------------------
+package com.fitconnect.entity;
+
+import jakarta.persistence.*;
+import java.time.LocalDateTime;
+
+@Entity
+public class GroupMessage {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @ManyToOne(optional = false)
+    private Group group;
+
+    @ManyToOne(optional = false)
+    private User sender;
+
+    @Column(nullable = false)
+    private String text;
+
+    private LocalDateTime timestamp = LocalDateTime.now();
+
+    public GroupMessage() {}
+
+    public GroupMessage(Group group, User sender, String text) {
+        this.group = group;
+        this.sender = sender;
+        this.text = text;
+    }
+
+    // Getter
+    public Long getId() { return id; }
+    public Group getGroup() { return group; }
+    public User getSender() { return sender; }
+    public String getText() { return text; }
+    public LocalDateTime getTimestamp() { return timestamp; }
+}.
+.
+--------------------------------------------------------------------------------
+Datei: C:\Bootcamp\fitconnect\fitconnect\backend\src\main\java\com\fitconnect\entity\GroupParticipant.java
+--------------------------------------------------------------------------------
+package com.fitconnect.entity;
+
+import jakarta.persistence.*;
+
+@Entity
+public class GroupParticipant {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @ManyToOne(optional = false)
+    private Group group;
+
+    @ManyToOne(optional = false)
+    private User user;
+
+    @Enumerated(EnumType.STRING)
+    private Role role = Role.MEMBER;
+
+    public enum Role {
+        ADMIN,
+        MEMBER
+    }
+
+    public GroupParticipant() {}
+
+    public GroupParticipant(Group group, User user, Role role) {
+        this.group = group;
+        this.user = user;
+        this.role = role;
+    }
+
+    // Getter und Setter
+    public Long getId() {
+        return id;
+    }
+
+    public Group getGroup() {
+        return group;
+    }
+
+    public void setGroup(Group group) {
+        this.group = group;
+    }
+
+    public User getUser() {
+        return user;
+    }
+
+    public void setUser(User user) {
+        this.user = user;
+    }
+
+    public Role getRole() {
+        return role;
+    }
+
+    public void setRole(Role role) {
+        this.role = role;
+    }
+}
+.
+.
+--------------------------------------------------------------------------------
 Datei: C:\Bootcamp\fitconnect\fitconnect\backend\src\main\java\com\fitconnect\entity\Message.java
 --------------------------------------------------------------------------------
 package com.fitconnect.entity;
@@ -770,6 +1116,66 @@ public interface FriendshipRepository extends JpaRepository<Friendship, Long> {
     List<User> findAllFriendsOf(@Param("user") User user);
 }
 .
+.
+--------------------------------------------------------------------------------
+Datei: C:\Bootcamp\fitconnect\fitconnect\backend\src\main\java\com\fitconnect\repository\GroupMessageRepository.java
+--------------------------------------------------------------------------------
+package com.fitconnect.repository;
+
+import com.fitconnect.entity.Group;
+import com.fitconnect.entity.GroupMessage;
+import org.springframework.data.jpa.repository.JpaRepository;
+
+import java.util.List;
+
+public interface GroupMessageRepository extends JpaRepository<GroupMessage, Long> {
+    List<GroupMessage> findByGroupOrderByTimestampAsc(Group group);
+}
+.
+.
+--------------------------------------------------------------------------------
+Datei: C:\Bootcamp\fitconnect\fitconnect\backend\src\main\java\com\fitconnect\repository\GroupParticipantRepository.java
+--------------------------------------------------------------------------------
+package com.fitconnect.repository;
+
+import java.util.List;
+import java.util.Optional;
+
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+
+import com.fitconnect.entity.GroupParticipant;
+import com.fitconnect.entity.User;
+
+public interface GroupParticipantRepository extends JpaRepository<GroupParticipant, Long> {
+   
+    List<GroupParticipant> findByUserUsername(String username);
+   
+    boolean existsByGroupIdAndUserUsername(Long groupId, String username);
+
+
+    @Query("SELECT gp.user FROM GroupParticipant gp WHERE gp.group.id = :groupId")
+    List<User> findUsersByGroupId(@Param("groupId") Long groupId);
+
+    Optional<GroupParticipant> findByGroupIdAndUserUsername(Long groupId, String username);
+    
+}.
+.
+--------------------------------------------------------------------------------
+Datei: C:\Bootcamp\fitconnect\fitconnect\backend\src\main\java\com\fitconnect\repository\GroupRepository.java
+--------------------------------------------------------------------------------
+package com.fitconnect.repository;
+
+import java.util.List;
+
+import org.springframework.data.jpa.repository.JpaRepository;
+
+import com.fitconnect.entity.Group;
+
+public interface GroupRepository extends JpaRepository<Group, Long> {
+    List<Group> findByCreatedBy(String username);
+}.
 .
 --------------------------------------------------------------------------------
 Datei: C:\Bootcamp\fitconnect\fitconnect\backend\src\main\java\com\fitconnect\repository\MessageRepository.java
@@ -984,6 +1390,9 @@ public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         .requestMatchers("/friends/**").authenticated()
         .requestMatchers("/users/search").authenticated()
         .requestMatchers("/messages/**").authenticated()
+        .requestMatchers("/groups/**").authenticated()
+        .requestMatchers("/group-messages/**").authenticated()
+        
         .anyRequest().denyAll()
 )
         .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class)
@@ -1156,6 +1565,20 @@ public class FeedSseService {
             }
         }
     }
+
+    public void broadcastGroupMessage(Long groupId, String fromUsername) {
+        for (SseEmitter emitter : clients) {
+            try {
+                emitter.send(SseEmitter.event()
+                    .name("group-message-" + groupId)
+                    .data(fromUsername));
+            } catch (IOException e) {
+                emitter.complete();
+                clients.remove(emitter);
+            }
+        }
+    }
+    
 
 
     
@@ -1400,6 +1823,7 @@ Datei: C:\Bootcamp\fitconnect\fitconnect\frontend\feed.html
     <<div class="header-buttons">
       <button onclick="window.location.href='profile.html'">Mein Profil</button>
       <button onclick="window.location.href='chat-list.html'">💬 Chats</button>
+      <button onclick="window.location.href='group-list.html'">👥 Gruppen</button>
       <button id="friends-btn">👥 Freunde</button>
       <button id="logout-btn" class="logout-btn">Logout</button>
     </div>
@@ -1484,7 +1908,7 @@ Datei: C:\Bootcamp\fitconnect\fitconnect\frontend\freunde.html
     </div>
     <div class="header-buttons">
       <button onclick="window.location.href='feed.html'">Zurück zum Feed</button>
-      <button id="friends-btn">👥 Freunde</button>
+   
       <button id="logout-btn" class="logout-btn">Logout</button>
     </div>
   </header>
@@ -1498,6 +1922,110 @@ Datei: C:\Bootcamp\fitconnect\fitconnect\frontend\freunde.html
   </section>
 
   <script src="js/friends.js"></script>
+</body>
+</html>
+.
+.
+--------------------------------------------------------------------------------
+Datei: C:\Bootcamp\fitconnect\fitconnect\frontend\group-chat.html
+--------------------------------------------------------------------------------
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>fitconnect – Gruppenchat</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+
+  <header class="header-top">
+    <div class="logo-and-user">
+      <h1 class="logo">fitconnect</h1>
+      <span class="greeting">💬 Gruppenchat <strong id="group-title">...</strong></span>
+    </div>
+    <div class="header-buttons">
+      <button onclick="window.location.href='group-list.html'">Zurück zu Gruppen</button>
+      <button onclick="window.location.href='chat-list.html'">💬 Chats</button>
+      <button onclick="window.location.href='feed.html'">Feed</button>
+      <button id="logout-btn" class="logout-btn">Logout</button>
+    </div>
+  </header>
+
+  <main class="content-container">
+    <section class="box" id="group-chat-box">
+      <ul id="chat-log" class="chat-log"></ul>
+
+      <form id="chat-form" class="inline-form" style="margin-top: 1rem;">
+        <input type="text" id="chat-input" placeholder="Nachricht schreiben..." required />
+        <button type="submit">Senden</button>
+      </form>
+    </section>
+
+    <section class="box">
+      <details open>
+        <summary>👥 Gruppenmitglieder</summary>
+        <ul id="member-list" class="result-list"></ul>
+      </details>
+
+      <details>
+        <summary>➕ Freunde zur Gruppe einladen</summary>
+        <form id="invite-form" class="inline-form">
+          <input type="text" id="invite-search" placeholder="Freund suchen..." required />
+          <button type="submit">🔍</button>
+        </form>
+        <ul id="invite-results" class="result-list"></ul>
+      </details>
+    </section>
+  </main>
+
+  <script src="js/group-chat.js"></script>
+</body>
+</html>
+.
+.
+--------------------------------------------------------------------------------
+Datei: C:\Bootcamp\fitconnect\fitconnect\frontend\group-list.html
+--------------------------------------------------------------------------------
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>fitconnect – Gruppen</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+
+  <header class="header-top">
+    <div class="logo-and-user">
+      <h1 class="logo">fitconnect</h1>
+      <span class="greeting">👥 Deine Gruppen, <strong id="user-name">...</strong></span>
+    </div>
+    <div class="header-buttons">
+      <button onclick="window.location.href='feed.html'">Feed</button>
+      <button onclick="window.location.href='chat-list.html'">💬 Chats</button>
+      <button id="logout-btn" class="logout-btn">Logout</button>
+    </div>
+  </header>
+
+  <main class="content-container">
+    <section class="box">
+      <h2>Neue Gruppe erstellen</h2>
+      <form id="create-group-form" class="inline-form">
+        <input type="text" id="group-name" placeholder="Gruppenname" required />
+        <button type="submit">➕ Erstellen</button>
+      </form>
+    </section>
+
+    <section class="box">
+      <h2>Meine Gruppen</h2>
+      <ul id="group-list" class="chat-list"></ul>
+      <p id="error-msg" style="color:red;"></p>
+    </section>
+  </main>
+
+  <script src="js/group-list.js"></script>
 </body>
 </html>
 .
@@ -1551,9 +2079,8 @@ Datei: C:\Bootcamp\fitconnect\fitconnect\frontend\profile.html
       <span class="greeting">👤 Eingeloggt als: <strong id="user-name"></strong></span>
     </div>
     <div class="header-buttons">
-      <button onclick="window.location.href='profile.html'">Mein Profil</button>
-      <button onclick="window.location.href='chat-list.html'">💬 Chats</button>
-      <button id="friends-btn">👥 Freunde</button>
+      <button onclick="window.location.href='feed.html'">Zurück zum Feed</button>
+      
       <button id="logout-btn" class="logout-btn">Logout</button>
     </div>
   </header>
@@ -2679,6 +3206,252 @@ Datei: C:\Bootcamp\fitconnect\fitconnect\frontend\js\friends.js
   await loadRequests();
 })();
 .
+.
+--------------------------------------------------------------------------------
+Datei: C:\Bootcamp\fitconnect\fitconnect\frontend\js\group-chat.js
+--------------------------------------------------------------------------------
+(async function () {
+    const token = localStorage.getItem("jwt_token");
+    const chatLog = document.getElementById("chat-log");
+    const chatForm = document.getElementById("chat-form");
+    const chatInput = document.getElementById("chat-input");
+    const groupTitle = document.getElementById("group-title");
+    const memberList = document.getElementById("member-list");
+    const inviteForm = document.getElementById("invite-form");
+    const inviteSearch = document.getElementById("invite-search");
+    const inviteResults = document.getElementById("invite-results");
+  
+    const urlParams = new URLSearchParams(window.location.search);
+    const groupId = urlParams.get("gid");
+  
+    if (!token || !groupId) {
+      chatLog.innerHTML = "<li>❌ Kein Token oder Gruppen-ID vorhanden.</li>";
+      chatForm.style.display = "none";
+      return;
+    }
+  
+    const currentUser = parseJwt(token).sub;
+    try {
+        const res = await fetch("http://localhost:8080/groups/" + groupId, {
+          headers: { Authorization: "Bearer " + token }
+        });
+        if (res.ok) {
+          const group = await res.json();
+          groupTitle.textContent = group.name;
+        } else {
+          groupTitle.textContent = `Gruppe #${groupId}`;
+        }
+      } catch {
+        groupTitle.textContent = `Gruppe #${groupId}`;
+      }
+  
+    async function loadChat() {
+      const res = await fetch(`http://localhost:8080/group-messages/${groupId}`, {
+        headers: { Authorization: "Bearer " + token }
+      });
+  
+      if (res.status === 403) {
+        chatLog.innerHTML = "<li style='color:red;'>❌ Du bist kein Mitglied dieser Gruppe.</li>";
+        chatForm.style.display = "none";
+        return;
+      }
+  
+      const messages = await res.json();
+      chatLog.innerHTML = "";
+      messages.forEach(m => {
+        const li = document.createElement("li");
+        const me = m.sender.username === currentUser;
+        li.className = me ? "chat-bubble chat-right" : "chat-bubble chat-left";
+        li.innerHTML = `
+          <div>${m.text}</div>
+          <small>${m.sender.username} • ${new Date(m.timestamp).toLocaleString("de-DE")}</small>
+        `;
+        chatLog.appendChild(li);
+      });
+  
+      chatLog.scrollTop = chatLog.scrollHeight;
+    }
+  
+    async function loadMembers() {
+      const res = await fetch(`http://localhost:8080/groups/${groupId}/members`, {
+        headers: { Authorization: "Bearer " + token }
+      });
+  
+      if (!res.ok) return;
+  
+      const users = await res.json();
+      memberList.innerHTML = "";
+      users.forEach(u => {
+        const li = document.createElement("li");
+        li.textContent = u.username;
+        memberList.appendChild(li);
+      });
+    }
+  
+    chatForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const text = chatInput.value.trim();
+      if (!text) return;
+  
+      await fetch(`http://localhost:8080/group-messages/${groupId}?text=${encodeURIComponent(text)}`, {
+        method: "POST",
+        headers: { Authorization: "Bearer " + token }
+      });
+  
+      chatInput.value = "";
+      await loadChat();
+    });
+  
+    inviteForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const query = inviteSearch.value.trim();
+      if (!query) return;
+  
+      const res = await fetch("http://localhost:8080/users/search?query=" + encodeURIComponent(query), {
+        headers: { Authorization: "Bearer " + token }
+      });
+  
+      if (!res.ok) return;
+  
+      const users = await res.json();
+      inviteResults.innerHTML = "";
+  
+      users.forEach(u => {
+        const li = document.createElement("li");
+        li.innerHTML = `
+          ${u.username}
+          <button data-user="${u.username}">➕ Einladen</button>
+        `;
+        inviteResults.appendChild(li);
+      });
+  
+      // Invite-Knöpfe
+      inviteResults.querySelectorAll("button").forEach(btn => {
+        btn.addEventListener("click", async () => {
+          const friendUsername = btn.dataset.user;
+  
+          const inviteRes = await fetch(
+            `http://localhost:8080/groups/${groupId}/invite?friendUsername=${friendUsername}`,
+            {
+              method: "POST",
+              headers: { Authorization: "Bearer " + token }
+            }
+          );
+  
+          if (inviteRes.ok) {
+            btn.disabled = true;
+            btn.textContent = "✅ Eingeladen";
+            await loadMembers();
+          }
+        });
+      });
+    });
+  
+    const eventSource = new EventSource("http://localhost:8080/activities/feed-stream");
+  
+    eventSource.addEventListener("group-message-" + groupId, () => {
+      loadChat();
+    });
+  
+    function parseJwt(token) {
+      const payload = token.split('.')[1];
+      return JSON.parse(atob(payload));
+    }
+  
+    await loadChat();
+    await loadMembers();
+  })();
+  .
+.
+--------------------------------------------------------------------------------
+Datei: C:\Bootcamp\fitconnect\fitconnect\frontend\js\group-list.js
+--------------------------------------------------------------------------------
+(async function () {
+    const token = localStorage.getItem("jwt_token");
+    const logoutBtn = document.getElementById("logout-btn");
+    const userNameElem = document.getElementById("user-name");
+    const groupList = document.getElementById("group-list");
+    const groupForm = document.getElementById("create-group-form");
+    const groupNameInput = document.getElementById("group-name");
+    const errorMsg = document.getElementById("error-msg");
+  
+    function parseJwt(token) {
+      const payload = token.split('.')[1];
+      return JSON.parse(atob(payload));
+    }
+  
+    if (!token) {
+      errorMsg.textContent = "Nicht eingeloggt.";
+      return;
+    }
+  
+    let username = "";
+    try {
+      const payload = parseJwt(token);
+      username = payload.sub;
+      if (userNameElem) userNameElem.textContent = username;
+    } catch {
+      errorMsg.textContent = "Token ungültig.";
+      return;
+    }
+  
+    if (logoutBtn) {
+      logoutBtn.addEventListener("click", () => {
+        localStorage.removeItem("jwt_token");
+        window.location.href = "index.html";
+      });
+    }
+  
+    async function loadGroups() {
+      try {
+        const res = await fetch("http://localhost:8080/groups", {
+          headers: { Authorization: "Bearer " + token }
+        });
+  
+        if (!res.ok) throw new Error();
+        const groups = await res.json();
+        groupList.innerHTML = "";
+  
+        if (groups.length === 0) {
+          groupList.innerHTML = "<li>Keine Gruppen gefunden.</li>";
+          return;
+        }
+  
+        groups.forEach(g => {
+          const li = document.createElement("li");
+          li.innerHTML = `
+            <a href="group-chat.html?gid=${g.id}">
+              <strong>${g.name}</strong><br/>
+              <small>Erstellt von ${g.createdBy}</small>
+            </a>
+          `;
+          groupList.appendChild(li);
+        });
+  
+      } catch {
+        errorMsg.textContent = "Fehler beim Laden der Gruppen.";
+      }
+    }
+  
+    groupForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const name = groupNameInput.value.trim();
+      if (!name) return;
+  
+      try {
+        await fetch("http://localhost:8080/groups?name=" + encodeURIComponent(name), {
+          method: "POST",
+          headers: { Authorization: "Bearer " + token }
+        });
+        groupNameInput.value = "";
+        await loadGroups();
+      } catch {
+        errorMsg.textContent = "Fehler beim Erstellen.";
+      }
+    });
+  
+    await loadGroups();
+  })();.
 .
 --------------------------------------------------------------------------------
 Datei: C:\Bootcamp\fitconnect\fitconnect\frontend\js\login.js

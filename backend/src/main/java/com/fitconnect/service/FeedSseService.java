@@ -108,6 +108,20 @@ public class FeedSseService {
         }
     }
 
+    public void broadcastGroupMessage(Long groupId, String fromUsername) {
+        for (SseEmitter emitter : clients) {
+            try {
+                emitter.send(SseEmitter.event()
+                    .name("group-message-" + groupId)
+                    .data(fromUsername));
+            } catch (IOException e) {
+                emitter.complete();
+                clients.remove(emitter);
+            }
+        }
+    }
+    
+
 
     
 }

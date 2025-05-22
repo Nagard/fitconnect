@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>fitconnect – Gruppen</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+
+  <header class="header-top">
+    <div class="logo-and-user">
+      <h1 class="logo">fitconnect</h1>
+      <span class="greeting">👥 Deine Gruppen, <strong id="user-name">...</strong></span>
+    </div>
+    <div class="header-buttons">
+      <button onclick="window.location.href='feed.html'">Feed</button>
+      <button onclick="window.location.href='chat-list.html'">💬 Chats</button>
+      <button id="logout-btn" class="logout-btn">Logout</button>
+    </div>
+  </header>
+
+  <main class="content-container">
+    <section class="box">
+      <h2>Neue Gruppe erstellen</h2>
+      <form id="create-group-form" class="inline-form">
+        <input type="text" id="group-name" placeholder="Gruppenname" required />
+        <button type="submit">➕ Erstellen</button>
+      </form>
+    </section>
+
+    <section class="box">
+      <h2>Meine Gruppen</h2>
+      <ul id="group-list" class="chat-list"></ul>
+      <p id="error-msg" style="color:red;"></p>
+    </section>
+  </main>
+
+  <script src="js/group-list.js"></script>
+</body>
+</html>
