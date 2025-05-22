@@ -371,4 +371,24 @@ eventSource.addEventListener("friend-request", (event) => {
      }
    });
  }
+
+ window.toggleBox = function(button) {
+  const content = button.nextElementSibling;
+  const isOpen = content.style.display === "block";
+  content.style.display = isOpen ? "none" : "block";
+
+  if (isOpen) {
+    button.textContent = button.textContent.replace("verbergen", "anzeigen");
+  } else {
+    button.textContent = button.textContent.replace("anzeigen", "verbergen");
+  }
+
+  // Map neu zeichnen, falls betroffen
+  if (content.querySelector("#map")) {
+    map.resize();
+  }
+};
+
 })();
+
+

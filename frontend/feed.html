@@ -22,36 +22,51 @@
     </div>
   </header>
   
+<!-- 📦 Inhalt -->
+<main class="content-container">
 
-
-  <!-- 🧑‍🔍 Nutzer-Suchleiste -->
-  <section style="text-align: center; margin-bottom: 2rem;">
-    <form id="user-search-form" style="display: inline-flex; gap: 0.5rem;">
-      <input type="text" id="search-query" placeholder="Benutzer suchen..." required />
-      <button type="submit">🔍</button>
-    </form>
-    <ul id="search-results" style="margin-top: 1rem; list-style: none;"></ul>
+  <!-- 🔍 Suche -->
+  <section class="box collapsible">
+    <button type="button" class="toggle" onclick="toggleBox(this)">🔍 Benutzer suchen</button>
+    <div class="content" style="display: none;">
+      <form id="user-search-form" class="inline-form">
+        <input type="text" id="search-query" placeholder="Benutzer suchen..." required />
+        <button type="submit">🔍</button>
+      </form>
+      <ul id="search-results" class="result-list"></ul>
+    </div>
   </section>
 
-  <form id="activity-form">
-    <input type="text" id="activity-input" placeholder="Was hast du gemacht?" required />
-    <input type="text" id="activity-location" placeholder="Ort per Kartenklick auswählen" />
-    <small style="text-align: center; display: block;">Klicke auf die Karte, um den Ort deiner Aktivität festzulegen</small>
-  
-    <select id="activity-visibility">
-      <option value="PUBLIC">Öffentlich</option>
-      <option value="FRIENDS_ONLY">Nur Freunde</option>
-      <option value="PRIVATE">Privat</option>
-    </select>
-  
-    <button type="submit">Posten</button>
-  </form>
+  <!-- 📝 Aktivitäten-Formular -->
+  <section class="box">
+    <form id="activity-form">
+      <input type="text" id="activity-input" placeholder="Was hast du gemacht?" required />
+      <input type="text" id="activity-location" placeholder="Ort per Kartenklick auswählen" />
+      <small>Klicke auf die Karte, um den Ort deiner Aktivität festzulegen</small>
+      <select id="activity-visibility">
+        <option value="PUBLIC">Öffentlich</option>
+        <option value="FRIENDS_ONLY">Nur Freunde</option>
+        <option value="PRIVATE">Privat</option>
+      </select>
+      <button type="submit">Posten</button>
+    </form>
+    <p id="error-msg" style="color:red;"></p>
+  </section>
 
-  <ul id="feed-list"></ul>
-  <p id="error-msg" style="color:red;"></p>
+  <!-- 📜 Feed -->
+  <section class="feed-list-container">
+    <ul id="feed-list" class="feed-list"></ul>
+  </section>
 
   <!-- 🗺️ Karte -->
-  <div id="map" style="height: 300px; margin-top: 2rem;"></div>
+  <section class="box collapsible">
+    <button type="button" class="toggle" onclick="toggleBox(this)">🗺️ Karte anzeigen</button>
+    <div class="content">
+      <div id="map" style="height: 300px;"></div>
+    </div>
+  </section>
+
+</main>
 
   <!-- Mapbox JS -->
   <script src="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"></script>
