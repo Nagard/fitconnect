@@ -16,4 +16,18 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
         ORDER BY m.timestamp ASC
     """)
     List<Message> getConversation(@Param("user1") User a, @Param("user2") User b);
+
+
+    @Query(value = """
+    SELECT DISTINCT ON (LEAST(m.sender_username, m.recipient_username), GREATEST(m.sender_username, m.recipient_username))
+           CASE WHEN m.sender_username = :current THEN m.recipient_username ELSE m.sender_username END as username,
+           m.text as last_message,
+           m.timestamp
+    FROM message m
+    WHERE m.sender_username = :current OR m.recipient_username = :current
+    ORDER BY LEAST(m.sender_username, m.recipient_username),
+             GREATEST(m.sender_username, m.recipient_username),
+             m.timestamp DESC
+""", nativeQuery = true)
+List<Object[]> findChatOverviews(@Param("current") String currentUser);
 }

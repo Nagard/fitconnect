@@ -264,3 +264,29 @@ body {
   margin-top: 0.5rem;
   text-align: right;
 }
+
+
+.chat-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.chat-list li {
+  background-color: #fff;
+  padding: 1rem;
+  border-radius: 8px;
+  margin-bottom: 1rem;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  transition: background 0.2s;
+}
+
+.chat-list li:hover {
+  background-color: #f0f0f0;
+}
+
+.chat-list a {
+  text-decoration: none;
+  color: inherit;
+  display: block;
+}

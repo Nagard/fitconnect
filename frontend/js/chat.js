@@ -31,8 +31,14 @@
         headers: { Authorization: "Bearer " + token }
       });
   
+      if (res.status === 403) {
+        chatLog.innerHTML = "<li style='color: red;'>❌ Du bist mit diesem Nutzer nicht (mehr) befreundet.<br/>Chat nicht verfügbar.</li>";
+        chatForm.style.display = "none";
+        return;
+      }
+      
       if (!res.ok) {
-        chatLog.innerHTML = "<li>Fehler beim Laden des Verlaufs.</li>";
+        chatLog.innerHTML = "<li>Unbekannter Fehler beim Laden des Verlaufs.</li>";
         return;
       }
   

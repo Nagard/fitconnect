@@ -9,6 +9,7 @@ C:\Bootcamp\fitconnect\fitconnect\backend\src\main\java\com\fitconnect\controlle
 C:\Bootcamp\fitconnect\fitconnect\backend\src\main\java\com\fitconnect\dto\ActivityRequest.java
 C:\Bootcamp\fitconnect\fitconnect\backend\src\main\java\com\fitconnect\controller\AuthController.java
 C:\Bootcamp\fitconnect\fitconnect\backend\src\main\java\com\fitconnect\FitconnectBackendApplication.java
+C:\Bootcamp\fitconnect\fitconnect\backend\src\main\java\com\fitconnect\dto\ChatPreviewDTO.java
 C:\Bootcamp\fitconnect\fitconnect\backend\src\main\java\com\fitconnect\service\AuthService.java
 C:\Bootcamp\fitconnect\fitconnect\backend\src\main\java\com\fitconnect\repository\MessageRepository.java
 C:\Bootcamp\fitconnect\fitconnect\backend\src\main\java\com\fitconnect\dto\AuthRequest.java

@@ -1,6 +1,7 @@
 package com.fitconnect.controller;
 
 import com.fitconnect.dto.ChatMessageRequest;
+import com.fitconnect.dto.ChatPreviewDTO;
 import com.fitconnect.entity.Message;
 import com.fitconnect.entity.User;
 import com.fitconnect.repository.MessageRepository;
@@ -58,5 +59,22 @@ public class MessageController {
         User u1 = userRepo.findById(currentUser).orElseThrow();
         User u2 = userRepo.findById(with).orElseThrow();
         return ResponseEntity.ok(messageRepo.getConversation(u1, u2));
+    }
+
+
+    @GetMapping("/overview")
+    public ResponseEntity<List<ChatPreviewDTO>> getChatOverview(Authentication auth) {
+        String currentUser = auth.getName();
+        List<Object[]> raw = messageRepo.findChatOverviews(currentUser);
+
+        List<ChatPreviewDTO> result = raw.stream()
+            .map(row -> new ChatPreviewDTO(
+                (String) row[0],
+                (String) row[1],
+                ((java.sql.Timestamp) row[2]).toLocalDateTime()
+            ))
+            .toList();
+
+        return ResponseEntity.ok(result);
     }
 }

@@ -287,6 +287,99 @@ public class FriendshipController {
         String status = friendshipService.getFriendshipStatus(currentUser, username);
         return ResponseEntity.ok(status);
     }
+
+    @DeleteMapping("/remove/{username}")
+    public ResponseEntity<Void> removeFriend(Authentication auth, @PathVariable String username) {
+        friendshipService.removeFriendship(auth.getName(), username);
+        return ResponseEntity.ok().build();
+    }
+
+
+}
+.
+.
+--------------------------------------------------------------------------------
+Datei: C:\Bootcamp\fitconnect\fitconnect\backend\src\main\java\com\fitconnect\controller\MessageController.java
+--------------------------------------------------------------------------------
+package com.fitconnect.controller;
+
+import com.fitconnect.dto.ChatMessageRequest;
+import com.fitconnect.dto.ChatPreviewDTO;
+import com.fitconnect.entity.Message;
+import com.fitconnect.entity.User;
+import com.fitconnect.repository.MessageRepository;
+import com.fitconnect.repository.UserRepository;
+import com.fitconnect.service.FeedSseService;
+import com.fitconnect.service.FriendshipService;
+
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+
+@RestController
+@RequestMapping("/messages")
+public class MessageController {
+
+    private final MessageRepository messageRepo;
+    private final UserRepository userRepo;
+    private final FriendshipService friendshipService;
+    private final FeedSseService feedSseService;
+   
+    public MessageController(MessageRepository messageRepo, UserRepository userRepo, FriendshipService friendshipService,FeedSseService feedSseService) {
+        this.messageRepo = messageRepo;
+        this.userRepo = userRepo;
+        this.friendshipService = friendshipService;
+        this.feedSseService = feedSseService;
+    }
+
+    @PostMapping
+    public ResponseEntity<?> sendMessage(@RequestBody ChatMessageRequest req, Authentication auth) {
+        String senderUsername = auth.getName();
+        if (!friendshipService.areFriends(senderUsername, req.recipient)) {
+            return ResponseEntity.status(403).body("Nur Freunde dürfen sich schreiben.");
+        }
+
+        User sender = userRepo.findById(senderUsername).orElseThrow();
+        User recipient = userRepo.findById(req.recipient).orElseThrow();
+        Message message = new Message(sender, recipient, req.text);
+        messageRepo.save(message);
+
+        feedSseService.broadcastMessage(req.recipient, senderUsername);
+        
+        // SSE push später in Sprint 13.4
+        return ResponseEntity.ok().build();
+    }
+
+    @GetMapping("/{with}")
+    public ResponseEntity<List<Message>> getConversation(@PathVariable String with, Authentication auth) {
+        String currentUser = auth.getName();
+        if (!friendshipService.areFriends(currentUser, with)) {
+            return ResponseEntity.status(403).build();
+        }
+
+        User u1 = userRepo.findById(currentUser).orElseThrow();
+        User u2 = userRepo.findById(with).orElseThrow();
+        return ResponseEntity.ok(messageRepo.getConversation(u1, u2));
+    }
+
+
+    @GetMapping("/overview")
+    public ResponseEntity<List<ChatPreviewDTO>> getChatOverview(Authentication auth) {
+        String currentUser = auth.getName();
+        List<Object[]> raw = messageRepo.findChatOverviews(currentUser);
+
+        List<ChatPreviewDTO> result = raw.stream()
+            .map(row -> new ChatPreviewDTO(
+                (String) row[0],
+                (String) row[1],
+                ((java.sql.Timestamp) row[2]).toLocalDateTime()
+            ))
+            .toList();
+
+        return ResponseEntity.ok(result);
+    }
 }
 .
 .
@@ -351,6 +444,36 @@ public class AuthResponse {
 
     public AuthResponse(String token) {
         this.token = token;
+    }
+}
+.
+.
+--------------------------------------------------------------------------------
+Datei: C:\Bootcamp\fitconnect\fitconnect\backend\src\main\java\com\fitconnect\dto\ChatMessageRequest.java
+--------------------------------------------------------------------------------
+package com.fitconnect.dto;
+
+public class ChatMessageRequest {
+    public String recipient;
+    public String text;
+}.
+.
+--------------------------------------------------------------------------------
+Datei: C:\Bootcamp\fitconnect\fitconnect\backend\src\main\java\com\fitconnect\dto\ChatPreviewDTO.java
+--------------------------------------------------------------------------------
+package com.fitconnect.dto;
+
+import java.time.LocalDateTime;
+
+public class ChatPreviewDTO {
+    public String username;
+    public String lastMessage;
+    public LocalDateTime timestamp;
+
+    public ChatPreviewDTO(String username, String lastMessage, LocalDateTime timestamp) {
+        this.username = username;
+        this.lastMessage = lastMessage;
+        this.timestamp = timestamp;
     }
 }
 .
@@ -506,6 +629,50 @@ public enum FriendshipStatus {
 }.
 .
 --------------------------------------------------------------------------------
+Datei: C:\Bootcamp\fitconnect\fitconnect\backend\src\main\java\com\fitconnect\entity\Message.java
+--------------------------------------------------------------------------------
+package com.fitconnect.entity;
+
+import jakarta.persistence.*;
+import java.time.LocalDateTime;
+
+@Entity
+public class Message {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @ManyToOne(optional = false)
+    private User sender;
+
+    @ManyToOne(optional = false)
+    private User recipient;
+
+    @Column(nullable = false)
+    private String text;
+
+    private LocalDateTime timestamp = LocalDateTime.now();
+
+    public Message() {}
+
+    public Message(User sender, User recipient, String text) {
+        this.sender = sender;
+        this.recipient = recipient;
+        this.text = text;
+        this.timestamp = LocalDateTime.now();
+    }
+
+    // Getter
+    public Long getId() { return id; }
+    public User getSender() { return sender; }
+    public User getRecipient() { return recipient; }
+    public String getText() { return text; }
+    public LocalDateTime getTimestamp() { return timestamp; }
+}
+.
+.
+--------------------------------------------------------------------------------
 Datei: C:\Bootcamp\fitconnect\fitconnect\backend\src\main\java\com\fitconnect\entity\User.java
 --------------------------------------------------------------------------------
 package com.fitconnect.entity;
@@ -601,6 +768,44 @@ public interface FriendshipRepository extends JpaRepository<Friendship, Long> {
         WHERE f.addressee = :user AND f.status = 'ACCEPTED'
     """)
     List<User> findAllFriendsOf(@Param("user") User user);
+}
+.
+.
+--------------------------------------------------------------------------------
+Datei: C:\Bootcamp\fitconnect\fitconnect\backend\src\main\java\com\fitconnect\repository\MessageRepository.java
+--------------------------------------------------------------------------------
+package com.fitconnect.repository;
+
+import com.fitconnect.entity.Message;
+import com.fitconnect.entity.User;
+import org.springframework.data.jpa.repository.*;
+import org.springframework.data.repository.query.Param;
+
+import java.util.List;
+
+public interface MessageRepository extends JpaRepository<Message, Long> {
+
+    @Query("""
+        SELECT m FROM Message m
+        WHERE (m.sender = :user1 AND m.recipient = :user2)
+           OR (m.sender = :user2 AND m.recipient = :user1)
+        ORDER BY m.timestamp ASC
+    """)
+    List<Message> getConversation(@Param("user1") User a, @Param("user2") User b);
+
+
+    @Query(value = """
+    SELECT DISTINCT ON (LEAST(m.sender_username, m.recipient_username), GREATEST(m.sender_username, m.recipient_username))
+           CASE WHEN m.sender_username = :current THEN m.recipient_username ELSE m.sender_username END as username,
+           m.text as last_message,
+           m.timestamp
+    FROM message m
+    WHERE m.sender_username = :current OR m.recipient_username = :current
+    ORDER BY LEAST(m.sender_username, m.recipient_username),
+             GREATEST(m.sender_username, m.recipient_username),
+             m.timestamp DESC
+""", nativeQuery = true)
+List<Object[]> findChatOverviews(@Param("current") String currentUser);
 }
 .
 .
@@ -778,6 +983,7 @@ public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         .requestMatchers("/activities/**").authenticated()
         .requestMatchers("/friends/**").authenticated()
         .requestMatchers("/users/search").authenticated()
+        .requestMatchers("/messages/**").authenticated()
         .anyRequest().denyAll()
 )
         .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class)
@@ -922,6 +1128,37 @@ public class FeedSseService {
             }
         }
     }
+
+
+
+    public void broadcastMessage(String toUsername, String fromUsername) {
+        for (SseEmitter emitter : clients) {
+            try {
+                emitter.send(SseEmitter.event()
+                    .name("new-message")
+                    .data(toUsername + "|" + fromUsername));
+            } catch (IOException e) {
+                emitter.complete();
+                clients.remove(emitter);
+            }
+        }
+    }
+
+    public void broadcastUnfriend(String targetUsername, String byUsername) {
+        for (SseEmitter emitter : clients) {
+            try {
+                emitter.send(SseEmitter.event()
+                    .name("friend-removed")
+                    .data(targetUsername + "|" + byUsername));
+            } catch (IOException e) {
+                emitter.complete();
+                clients.remove(emitter);
+            }
+        }
+    }
+
+
+    
 }
 .
 .
@@ -1009,6 +1246,17 @@ public class FriendshipService {
         // Nimm einfach den ersten Status (ggf. erweitern mit Prioritätslogik)
         return friendships.get(0).getStatus().name();
     }
+
+    public void removeFriendship(String userA, String userB) {
+        User u1 = userRepo.findById(userA).orElseThrow();
+        User u2 = userRepo.findById(userB).orElseThrow();
+    
+        friendshipRepo.findFriendshipsBetween(u1, u2)
+            .forEach(friendshipRepo::delete);
+    
+        feedSseService.broadcastUnfriend(userB, userA); // B erfährt, dass A ihn entfernt hat
+    }
+    
 }
 
 .
@@ -1052,6 +1300,84 @@ version=0.0.1-SNAPSHOT
 .
 .
 --------------------------------------------------------------------------------
+Datei: C:\Bootcamp\fitconnect\fitconnect\frontend\chat-list.html
+--------------------------------------------------------------------------------
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>fitconnect – Chat-Übersicht</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <header class="header-top">
+    <div class="logo-and-user">
+      <h1 class="logo">fitconnect</h1>
+      <span class="greeting">💬 Deine Chats, <strong id="user-name">...</strong></span>
+    </div>
+    <div class="header-buttons">
+      <button onclick="window.location.href='feed.html'">Zurück zum Feed</button>
+      <button id="logout-btn" class="logout-btn">Logout</button>
+    </div>
+  </header>
+
+  <main class="content-container">
+    <section class="box">
+      <h2>Konversationen</h2>
+      <ul id="chat-list" class="chat-list"></ul>
+      <p id="error-msg" style="color: red;"></p>
+    </section>
+  </main>
+
+  <script src="js/chat-list.js"></script>
+</body>
+</html>
+.
+.
+--------------------------------------------------------------------------------
+Datei: C:\Bootcamp\fitconnect\fitconnect\frontend\chat.html
+--------------------------------------------------------------------------------
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>fitconnect – Chat</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <header class="header-top">
+    <div class="logo-and-user">
+      <h1 class="logo">fitconnect</h1>
+      <span class="greeting">💬 Chat mit <strong id="chat-partner">...</strong></span>
+    </div>
+    <<div class="header-buttons">
+      <button onclick="window.location.href='profile.html'">Mein Profil</button>
+      <button onclick="window.location.href='chat-list.html'">💬 Chats</button>
+      <button id="friends-btn">👥 Freunde</button>
+      <button id="logout-btn" class="logout-btn">Logout</button>
+    </div>
+  </header>
+
+  <main class="content-container">
+    <section class="box" id="chat-box">
+      <ul id="chat-log" class="chat-log"></ul>
+
+      <form id="chat-form" class="inline-form" style="margin-top: 1rem;">
+        <input type="text" id="chat-input" placeholder="Nachricht schreiben..." required>
+        <button type="submit">Senden</button>
+      </form>
+    </section>
+  </main>
+
+  <script src="js/chat.js"></script>
+</body>
+</html>
+.
+.
+--------------------------------------------------------------------------------
 Datei: C:\Bootcamp\fitconnect\fitconnect\frontend\feed.html
 --------------------------------------------------------------------------------
 <!DOCTYPE html>
@@ -1066,48 +1392,71 @@ Datei: C:\Bootcamp\fitconnect\fitconnect\frontend\feed.html
   <link rel="stylesheet" href="css/style.css" />
 </head>
 <body>
-  <header>
-    <h1>fitconnect</h1>
-    <span id="user-greeting"></span>
-    <div>
-        
-    
+  <header class="header-top">
+    <div class="logo-and-user">
+      <h1 class="logo">fitconnect</h1>
+      <span id="user-greeting" class="greeting">👋 Willkommen, <strong id="user-name">demo</strong></span>
+    </div>
+    <<div class="header-buttons">
       <button onclick="window.location.href='profile.html'">Mein Profil</button>
-      <button onclick="window.location.href='freunde.html'">👥 Freunde</button>
-      
-      <button id="logout-btn">Logout</button>
+      <button onclick="window.location.href='chat-list.html'">💬 Chats</button>
+      <button id="friends-btn">👥 Freunde</button>
+      <button id="logout-btn" class="logout-btn">Logout</button>
     </div>
   </header>
+  
+<!-- 📦 Inhalt -->
+<main class="content-container">
+
+  <!-- 📜 Feed -->
+  <section class="feed-list-container">
+    <ul id="feed-list" class="feed-list"></ul>
+  </section>
+
+  
+
+ 
 
 
-  <!-- 🧑‍🔍 Nutzer-Suchleiste -->
-  <section style="text-align: center; margin-bottom: 2rem;">
-    <form id="user-search-form" style="display: inline-flex; gap: 0.5rem;">
+  <!-- 🗺️ Karte -->
+  <section class="box collapsible">
+    <button type="button" class="toggle" onclick="toggleBox(this)">🗺️ Karte anzeigen</button>
+    <div class="content">
+      <div id="map" style="height: 300px;"></div>
+    </div>
+  </section>
+
+  <!-- 📝 Aktivitäten-Formular -->
+  <section class="box">
+    <form id="activity-form">
+      <input type="text" id="activity-input" placeholder="Was hast du gemacht?" required />
+      <input type="text" id="activity-location" placeholder="Ort per Kartenklick auswählen" />
+      <small>Klicke auf die Karte, um den Ort deiner Aktivität festzulegen</small>
+      <select id="activity-visibility">
+        <option value="PUBLIC">Öffentlich</option>
+        <option value="FRIENDS_ONLY">Nur Freunde</option>
+        <option value="PRIVATE">Privat</option>
+      </select>
+      <button type="submit">Posten</button>
+    </form>
+    <p id="error-msg" style="color:red;"></p>
+  </section>
+
+  
+ <!-- 🔍 Suche -->
+ <section class="box collapsible">
+  <button type="button" class="toggle" onclick="toggleBox(this)">🔍 Benutzer suchen</button>
+  <div class="content" style="display: none;">
+    <form id="user-search-form" class="inline-form">
       <input type="text" id="search-query" placeholder="Benutzer suchen..." required />
       <button type="submit">🔍</button>
     </form>
-    <ul id="search-results" style="margin-top: 1rem; list-style: none;"></ul>
-  </section>
-
-  <form id="activity-form">
-    <input type="text" id="activity-input" placeholder="Was hast du gemacht?" required />
-    <input type="text" id="activity-location" placeholder="Ort per Kartenklick auswählen" />
-    <small style="text-align: center; display: block;">Klicke auf die Karte, um den Ort deiner Aktivität festzulegen</small>
+    <ul id="search-results" class="result-list"></ul>
+  </div>
+</section>
   
-    <select id="activity-visibility">
-      <option value="PUBLIC">Öffentlich</option>
-      <option value="FRIENDS_ONLY">Nur Freunde</option>
-      <option value="PRIVATE">Privat</option>
-    </select>
-  
-    <button type="submit">Posten</button>
-  </form>
 
-  <ul id="feed-list"></ul>
-  <p id="error-msg" style="color:red;"></p>
-
-  <!-- 🗺️ Karte -->
-  <div id="map" style="height: 300px; margin-top: 2rem;"></div>
+</main>
 
   <!-- Mapbox JS -->
   <script src="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"></script>
@@ -1128,10 +1477,16 @@ Datei: C:\Bootcamp\fitconnect\fitconnect\frontend\freunde.html
   <link rel="stylesheet" href="css/style.css" />
 </head>
 <body>
-  <header>
-    <h1>Meine Freunde</h1>
-    <span id="user-greeting"></span>
-    <button onclick="window.location.href='feed.html'">Zurück zum Feed</button>
+  <header class="header-top">
+    <div class="logo-and-user">
+      <h1 class="logo">fitconnect</h1>
+      <span class="greeting">👤 Eingeloggt als: <strong id="user-name"></strong></span>
+    </div>
+    <div class="header-buttons">
+      <button onclick="window.location.href='feed.html'">Zurück zum Feed</button>
+      <button id="friends-btn">👥 Freunde</button>
+      <button id="logout-btn" class="logout-btn">Logout</button>
+    </div>
   </header>
 
   <section>
@@ -1190,17 +1545,21 @@ Datei: C:\Bootcamp\fitconnect\fitconnect\frontend\profile.html
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
-  <header>
-    <h1>Mein Profil</h1>
-    <span id="user-greeting"></span>
-    
-
-    <button onclick="window.location.href='freunde.html'">👥 Freunde</button>
-
-    <button onclick="window.location.href='feed.html'">Zurück zum Feed</button>
+  <header class="header-top">
+    <div class="logo-and-user">
+      <h1 class="logo">fitconnect</h1>
+      <span class="greeting">👤 Eingeloggt als: <strong id="user-name"></strong></span>
+    </div>
+    <div class="header-buttons">
+      <button onclick="window.location.href='profile.html'">Mein Profil</button>
+      <button onclick="window.location.href='chat-list.html'">💬 Chats</button>
+      <button id="friends-btn">👥 Freunde</button>
+      <button id="logout-btn" class="logout-btn">Logout</button>
+    </div>
   </header>
 
   <p id="friend-status"></p>
+  <button id="unfriend-btn" style="display: none;">❌ Freundschaft beenden</button>
   <button id="add-friend-btn" style="display: none;">Freund hinzufügen</button>
   
   <section>
@@ -1366,13 +1725,405 @@ body {
   box-shadow: none;
 }
 
+
+.header-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  max-width: 900px;
+  margin: auto;
+  padding: 1rem 0;
+  flex-wrap: wrap;
+}
+
+.logo-and-user {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.logo {
+  color: #0077cc;
+  font-size: 2rem;
+  margin: 0;
+}
+
+.greeting {
+  font-size: 1rem;
+  color: #444;
+}
+
+.header-buttons {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.logout-btn {
+  background-color: #888;
+}
+
+.content-container {
+  max-width: 700px;
+  margin: 2rem auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+
+.box {
+  background-color: #ffffff;
+  padding: 1.5rem;
+  border-radius: 8px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+}
+
+.inline-form {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: center;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.result-list {
+  margin-top: 1rem;
+  list-style: none;
+  padding: 0;
+}
+
+.result-list li {
+  margin-bottom: 0.5rem;
+}
+
+.feed-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.feed-list li {
+  background-color: #fefefe;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+.collapsible .toggle {
+  width: 100%;
+  text-align: left;
+  background-color: #0077cc;
+  color: white;
+  padding: 0.8rem;
+  border: none;
+  font-size: 1rem;
+  cursor: pointer;
+  border-radius: 6px;
+  margin-bottom: 0.5rem;
+}
+
+.collapsible .toggle:hover {
+  background-color: #005fa3;
+}
+
+.collapsible .content {
+  padding-top: 0.5rem;
+}
+
+
+.chat-log {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.chat-bubble {
+  max-width: 70%;
+  padding: 0.9rem 1.1rem;
+  border-radius: 7.5px;
+  box-shadow: 0 1px 1px rgba(0,0,0,0.08);
+  line-height: 1.4;
+  position: relative;
+  word-wrap: break-word;
+  display: inline-block;
+}
+
+.chat-left {
+  background-color: #ffffff;
+  align-self: flex-start;
+  border-top-left-radius: 0;
+}
+
+.chat-right {
+  background-color: #dcf8c6;
+  align-self: flex-end;
+  border-top-right-radius: 0;
+  text-align: left;
+}
+
+.chat-bubble small {
+  display: block;
+  font-size: 0.75rem;
+  color: #999;
+  margin-top: 0.5rem;
+  text-align: right;
+}
+
+
+.chat-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.chat-list li {
+  background-color: #fff;
+  padding: 1rem;
+  border-radius: 8px;
+  margin-bottom: 1rem;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  transition: background 0.2s;
+}
+
+.chat-list li:hover {
+  background-color: #f0f0f0;
+}
+
+.chat-list a {
+  text-decoration: none;
+  color: inherit;
+  display: block;
+}.
 .
+--------------------------------------------------------------------------------
+Datei: C:\Bootcamp\fitconnect\fitconnect\frontend\js\chat-list.js
+--------------------------------------------------------------------------------
+(async function () {
+    const token = localStorage.getItem("jwt_token");
+    const logoutBtn = document.getElementById("logout-btn");
+    const userNameElem = document.getElementById("user-name");
+    const chatList = document.getElementById("chat-list");
+    const errorMsg = document.getElementById("error-msg");
+  
+    function parseJwt(token) {
+      const payload = token.split('.')[1];
+      return JSON.parse(atob(payload));
+    }
+  
+    if (!token) {
+      errorMsg.textContent = "Nicht eingeloggt.";
+      return;
+    }
+  
+    let username = "";
+    try {
+      const payload = parseJwt(token);
+      username = payload.sub;
+      if (userNameElem) userNameElem.textContent = username;
+    } catch {
+      errorMsg.textContent = "Fehler beim Token.";
+      return;
+    }
+  
+    if (logoutBtn) {
+      logoutBtn.addEventListener("click", () => {
+        localStorage.removeItem("jwt_token");
+        window.location.href = "index.html";
+      });
+    }
+  
+    try {
+      const res = await fetch("http://localhost:8080/messages/overview", {
+        headers: { Authorization: "Bearer " + token }
+      });
+  
+      if (!res.ok) throw new Error();
+  
+      const chats = await res.json();
+      if (chats.length === 0) {
+        chatList.innerHTML = "<li>Keine Konversationen gefunden.</li>";
+        return;
+      }
+  
+      chats.forEach(chat => {
+        const li = document.createElement("li");
+        li.innerHTML = `
+          <a href="chat.html?with=${chat.username}">
+            <strong>${chat.username}</strong><br/>
+            <small>${chat.lastMessage}</small><br/>
+            <span style="font-size: 0.8rem; color: #888;">
+              ${new Date(chat.timestamp).toLocaleString("de-DE")}
+            </span>
+          </a>
+        `;
+        chatList.appendChild(li);
+      });
+  
+    } catch {
+      errorMsg.textContent = "Fehler beim Laden der Chatübersicht.";
+    }
+  })();
+  .
+.
+--------------------------------------------------------------------------------
+Datei: C:\Bootcamp\fitconnect\fitconnect\frontend\js\chat.js
+--------------------------------------------------------------------------------
+(async function () {
+    const token = localStorage.getItem("jwt_token");
+    const logoutBtn = document.getElementById("logout-btn");
+    const chatLog = document.getElementById("chat-log");
+    const chatForm = document.getElementById("chat-form");
+    const chatInput = document.getElementById("chat-input");
+    const chatPartnerElem = document.getElementById("chat-partner");
+  
+    const urlParams = new URLSearchParams(window.location.search);
+    const withUser = urlParams.get("with");
+  
+
+
+
+
+    
+    if (!token || !withUser) {
+      chatLog.innerHTML = "<li>Fehler: Kein Nutzer angegeben oder nicht eingeloggt.</li>";
+      return;
+    }
+  
+    chatPartnerElem.textContent = withUser;
+  
+    logoutBtn.addEventListener("click", () => {
+      localStorage.removeItem("jwt_token");
+      window.location.href = "index.html";
+    });
+  
+    async function loadChat() {
+      const res = await fetch(`http://localhost:8080/messages/${withUser}`, {
+        headers: { Authorization: "Bearer " + token }
+      });
+  
+      if (res.status === 403) {
+        chatLog.innerHTML = "<li style='color: red;'>❌ Du bist mit diesem Nutzer nicht (mehr) befreundet.<br/>Chat nicht verfügbar.</li>";
+        chatForm.style.display = "none";
+        return;
+      }
+      
+      if (!res.ok) {
+        chatLog.innerHTML = "<li>Unbekannter Fehler beim Laden des Verlaufs.</li>";
+        return;
+      }
+  
+      const messages = await res.json();
+      chatLog.innerHTML = "";
+      messages.forEach(m => {
+        const li = document.createElement("li");
+        const me = parseJwt(token).sub === m.sender.username;
+        li.className = me ? "chat-bubble chat-right" : "chat-bubble chat-left";
+      
+        li.innerHTML = `
+        <div>${m.text}</div>
+        <small>${new Date(m.timestamp).toLocaleString('de-DE')}</small>
+      `;
+      
+      chatLog.appendChild(li);
+      });
+  
+      chatLog.scrollTop = chatLog.scrollHeight;
+    }
+  
+    chatForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const text = chatInput.value.trim();
+      if (!text) return;
+  
+      await fetch("http://localhost:8080/messages", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer " + token
+        },
+        body: JSON.stringify({ recipient: withUser, text })
+      });
+  
+      chatInput.value = "";
+      await loadChat();
+    });
+  
+    function parseJwt(token) {
+      const payload = token.split('.')[1];
+      return JSON.parse(atob(payload));
+    }
+  
+    await loadChat();
+
+
+
+    const eventSource = new EventSource("http://localhost:8080/activities/feed-stream");
+
+    eventSource.addEventListener("new-message", (event) => {
+      const [recipient, sender] = event.data.split("|");
+    
+      const currentUser = parseJwt(token).sub;
+      const chatPartner = new URLSearchParams(window.location.search).get("with");
+    
+      const isRelevant = (recipient === currentUser && sender === chatPartner);
+      if (isRelevant) {
+        loadChat(); // Neues anzeigen
+      }
+    });
+
+
+    
+
+  eventSource.addEventListener("friend-removed", (event) => {
+    const [target, by] = event.data.split("|");
+    const currentUser = parseJwt(token).sub;
+  
+    if (target === currentUser) {
+      const notice = document.createElement("div");
+      notice.textContent = `🚫 ${by} hat die Freundschaft beendet.`;
+      notice.style.background = "#ffdddd";
+      notice.style.color = "#800";
+      notice.style.padding = "1rem";
+      notice.style.textAlign = "center";
+      notice.style.fontWeight = "bold";
+      notice.style.marginBottom = "1rem";
+  
+      document.body.prepend(notice);
+    }
+  });
+
+  function parseJwt(token) {
+    const payload = token.split('.')[1];
+    return JSON.parse(atob(payload));
+  }
+
+  })();
+  .
 .
 --------------------------------------------------------------------------------
 Datei: C:\Bootcamp\fitconnect\fitconnect\frontend\js\feed.js
 --------------------------------------------------------------------------------
 (async function () {
   const token = localStorage.getItem("jwt_token");
+
+  function parseJwt(token) {
+    const base64Url = token.split('.')[1];
+    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+    const jsonPayload = decodeURIComponent(
+      atob(base64)
+        .split('')
+        .map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+        .join('')
+    );
+    return JSON.parse(jsonPayload);
+  }
+
   const errorMsg = document.getElementById("error-msg");
   const feedList = document.getElementById("feed-list");
   const logoutBtn = document.getElementById("logout-btn");
@@ -1389,13 +2140,33 @@ Datei: C:\Bootcamp\fitconnect\fitconnect\frontend\js\feed.js
 
   // Username aus dem JWT-Token herauslesen
   let username = "";
-  try {
-    const payload = JSON.parse(atob(token.split('.')[1]));
-    username = payload.sub;
-    userGreeting.textContent = "👋 Willkommen, " + username;
-  } catch (err) {
-    userGreeting.textContent = "";
-  }
+try {
+  const payload = JSON.parse(atob(token.split('.')[1]));
+  username = payload.sub;
+  document.getElementById("user-name").textContent = username;
+} catch (err) {
+  userGreeting.textContent = "";
+}
+
+// Freunde-Button separat danach initialisieren
+const friendsBtn = document.getElementById("friends-btn");
+if (friendsBtn && username) {
+  fetch("http://localhost:8080/friends/requests", {
+    headers: { Authorization: "Bearer " + token }
+  })
+    .then(res => res.json())
+    .then(requests => {
+      if (requests.length > 0) {
+        friendsBtn.textContent = `👥 Freunde (${requests.length})`;
+      }
+    });
+
+  friendsBtn.addEventListener("click", () => {
+    window.location.href = "freunde.html";
+  });
+}
+
+  
 
   // Map initialisieren
   mapboxgl.accessToken = "pk.eyJ1IjoibmFnYXJkIiwiYSI6ImNtYXhvcmx5MjAwanMyd3F1MGF0c2FpbHAifQ.y41D8qaCugwI3rVrNV0AJQ";
@@ -1691,6 +2462,25 @@ eventSource.addEventListener("friend-request", (event) => {
   }
 });
 
+
+eventSource.addEventListener("friend-removed", (event) => {
+  const [target, by] = event.data.split("|");
+  const currentUser = parseJwt(token).sub;
+
+  if (target === currentUser) {
+    const notice = document.createElement("div");
+    notice.textContent = `🚫 ${by} hat die Freundschaft beendet.`;
+    notice.style.background = "#ffdddd";
+    notice.style.color = "#800";
+    notice.style.padding = "1rem";
+    notice.style.textAlign = "center";
+    notice.style.fontWeight = "bold";
+    notice.style.marginBottom = "1rem";
+
+    document.body.prepend(notice);
+  }
+});
+
  // 🔍 Nutzer-Suche
  const searchForm = document.getElementById("user-search-form");
  const searchResults = document.getElementById("search-results");
@@ -1724,74 +2514,171 @@ eventSource.addEventListener("friend-request", (event) => {
      }
    });
  }
-})();.
+
+ window.toggleBox = function(button) {
+  const content = button.nextElementSibling;
+  const isOpen = content.style.display === "block";
+  content.style.display = isOpen ? "none" : "block";
+
+  if (isOpen) {
+    button.textContent = button.textContent.replace("verbergen", "anzeigen");
+  } else {
+    button.textContent = button.textContent.replace("anzeigen", "verbergen");
+  }
+
+  // Map neu zeichnen, falls betroffen
+  if (content.querySelector("#map")) {
+    map.resize();
+  }
+};
+
+})();
+
+
+.
 .
 --------------------------------------------------------------------------------
 Datei: C:\Bootcamp\fitconnect\fitconnect\frontend\js\friends.js
 --------------------------------------------------------------------------------
 (async function () {
-    const token = localStorage.getItem("jwt_token");
-    const userGreeting = document.getElementById("user-greeting");
-    const friendsList = document.getElementById("friends-list");
-    const requestsList = document.getElementById("requests-list");
+  const token = localStorage.getItem("jwt_token");
+  const userNameElem = document.getElementById("user-name");
+  const friendsList = document.getElementById("friends-list");
+  const requestsList = document.getElementById("requests-list");
+
+
+  const eventSource = new EventSource("http://localhost:8080/activities/feed-stream");
+
+  eventSource.addEventListener("friend-removed", (event) => {
+    const [target, by] = event.data.split("|");
+    const currentUser = parseJwt(token).sub;
   
-    if (!token) {
-      userGreeting.textContent = "Nicht eingeloggt.";
-      return;
+    if (target === currentUser) {
+      const notice = document.createElement("div");
+      notice.textContent = `🚫 ${by} hat die Freundschaft beendet.`;
+      notice.style.background = "#ffdddd";
+      notice.style.color = "#800";
+      notice.style.padding = "1rem";
+      notice.style.textAlign = "center";
+      notice.style.fontWeight = "bold";
+      notice.style.marginBottom = "1rem";
+  
+      document.body.prepend(notice);
     }
-  
-    let username = "";
-    try {
-      const payload = JSON.parse(atob(token.split('.')[1]));
-      username = payload.sub;
-      userGreeting.textContent = "👤 Eingeloggt als: " + username;
-    } catch (err) {
-      userGreeting.textContent = "";
-    }
-  
-    async function loadFriends() {
-      const res = await fetch("http://localhost:8080/friends", {
-        headers: { Authorization: "Bearer " + token }
+  });
+
+  function parseJwt(token) {
+    const payload = token.split('.')[1];
+    return JSON.parse(atob(payload));
+  }
+
+
+
+
+  if (!token) {
+    if (userNameElem) userNameElem.textContent = "Nicht eingeloggt.";
+    return;
+  }
+
+  let username = "";
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1]));
+    username = payload.sub;
+    if (userNameElem) userNameElem.textContent = username;
+  } catch (err) {
+    if (userNameElem) userNameElem.textContent = "";
+  }
+
+  // Freunde-Button aktualisieren
+  const friendsBtn = document.getElementById("friends-btn");
+  if (friendsBtn && username) {
+    fetch("http://localhost:8080/friends/requests", {
+      headers: { Authorization: "Bearer " + token }
+    })
+      .then(res => res.json())
+      .then(requests => {
+        if (requests.length > 0) {
+          friendsBtn.textContent = `👥 Freunde (${requests.length})`;
+        }
       });
-      const users = await res.json();
-      friendsList.innerHTML = "";
-      users.forEach(user => {
-        const li = document.createElement("li");
-        li.innerHTML = `<a href="profile.html?user=${user.username}">${user.username}</a>`;
-        friendsList.appendChild(li);
-      });
-    }
-  
-    async function loadRequests() {
-      const res = await fetch("http://localhost:8080/friends/requests", {
-        headers: { Authorization: "Bearer " + token }
-      });
-      const requests = await res.json();
-      requestsList.innerHTML = "";
-      requests.forEach(req => {
-        const li = document.createElement("li");
-        li.innerHTML = `
-          <a href="profile.html?user=${req.requester.username}">${req.requester.username}</a>
-          <button onclick="respond(${req.id}, true)">✔️</button>
-          <button onclick="respond(${req.id}, false)">❌</button>
-        `;
-        requestsList.appendChild(li);
-      });
-    }
-  
-    window.respond = async function (id, accept) {
-      await fetch("http://localhost:8080/friends/respond/" + id + "?accept=" + accept, {
-        method: "POST",
-        headers: { Authorization: "Bearer " + token }
-      });
-      await loadFriends();
-      await loadRequests();
-    };
-  
+
+    friendsBtn.addEventListener("click", () => {
+      window.location.href = "freunde.html";
+    });
+  }
+
+  // Logout
+  const logoutBtn = document.getElementById("logout-btn");
+  if (logoutBtn) {
+    logoutBtn.addEventListener("click", () => {
+      localStorage.removeItem("jwt_token");
+      window.location.href = "index.html";
+    });
+  }
+
+  async function loadFriends() {
+    const res = await fetch("http://localhost:8080/friends", {
+      headers: { Authorization: "Bearer " + token }
+    });
+    const users = await res.json();
+    friendsList.innerHTML = "";
+    users.forEach(user => {
+      const li = document.createElement("li");
+      li.innerHTML = `
+        <a href="profile.html?user=${user.username}">${user.username}</a>
+        <button onclick="startChat('${user.username}')">💬</button>
+        <button onclick="unfriend('${user.username}')">❌</button>
+      `;
+      friendsList.appendChild(li);
+    });
+  }
+
+  async function loadRequests() {
+    const res = await fetch("http://localhost:8080/friends/requests", {
+      headers: { Authorization: "Bearer " + token }
+    });
+    const requests = await res.json();
+    requestsList.innerHTML = "";
+    requests.forEach(req => {
+      const li = document.createElement("li");
+      li.innerHTML = `
+        <a href="profile.html?user=${req.requester.username}">${req.requester.username}</a>
+        <button onclick="respond(${req.id}, true)">✔️</button>
+        <button onclick="respond(${req.id}, false)">❌</button>
+      `;
+      requestsList.appendChild(li);
+    });
+  }
+
+  window.respond = async function (id, accept) {
+    await fetch("http://localhost:8080/friends/respond/" + id + "?accept=" + accept, {
+      method: "POST",
+      headers: { Authorization: "Bearer " + token }
+    });
     await loadFriends();
     await loadRequests();
-  })();
-  .
+  };
+
+  window.unfriend = async function (username) {
+    if (!confirm(`Freundschaft mit ${username} wirklich beenden?`)) return;
+
+    await fetch(`http://localhost:8080/friends/remove/${username}`, {
+      method: "DELETE",
+      headers: { Authorization: "Bearer " + token }
+    });
+
+    await loadFriends();
+    await loadRequests();
+  };
+
+  window.startChat = function (username) {
+    window.location.href = `chat.html?with=${username}`;
+  };
+
+  await loadFriends();
+  await loadRequests();
+})();
+.
 .
 --------------------------------------------------------------------------------
 Datei: C:\Bootcamp\fitconnect\fitconnect\frontend\js\login.js
@@ -1826,19 +2713,49 @@ document.getElementById("login-form").addEventListener("submit", async function 
 --------------------------------------------------------------------------------
 Datei: C:\Bootcamp\fitconnect\fitconnect\frontend\js\profile.js
 --------------------------------------------------------------------------------
-Willkommen(async function () {
+(async function () {
   const token = localStorage.getItem("jwt_token");
-  const greeting = document.getElementById("user-greeting");
+  const userNameElem = document.getElementById("user-name");
   const list = document.getElementById("activity-list");
   const stats = document.getElementById("stats");
   const addFriendBtn = document.getElementById("add-friend-btn");
+  const unfriendBtn = document.getElementById("unfriend-btn");
   const friendStatus = document.getElementById("friend-status");
 
   const urlParams = new URLSearchParams(window.location.search);
   const targetUser = urlParams.get("user");
 
+
+  const eventSource = new EventSource("http://localhost:8080/activities/feed-stream");
+
+  eventSource.addEventListener("friend-removed", (event) => {
+    const [target, by] = event.data.split("|");
+    const currentUser = parseJwt(token).sub;
+  
+    if (target === currentUser) {
+      const notice = document.createElement("div");
+      notice.textContent = `🚫 ${by} hat die Freundschaft beendet.`;
+      notice.style.background = "#ffdddd";
+      notice.style.color = "#800";
+      notice.style.padding = "1rem";
+      notice.style.textAlign = "center";
+      notice.style.fontWeight = "bold";
+      notice.style.marginBottom = "1rem";
+  
+      document.body.prepend(notice);
+    }
+  });
+
+  function parseJwt(token) {
+    const payload = token.split('.')[1];
+    return JSON.parse(atob(payload));
+  }
+
+
+
+  
   if (!token) {
-    greeting.textContent = "Nicht eingeloggt.";
+    userNameElem.textContent = "Nicht eingeloggt";
     return;
   }
 
@@ -1846,9 +2763,36 @@ Willkommen(async function () {
   try {
     const payload = JSON.parse(atob(token.split('.')[1]));
     currentUser = payload.sub;
-    greeting.textContent = "👤 Eingeloggt als: " + currentUser;
+    if (userNameElem) userNameElem.textContent = currentUser;
   } catch (err) {
-    greeting.textContent = "";
+    if (userNameElem) userNameElem.textContent = "";
+  }
+
+  // Freunde-Button aktualisieren
+  const friendsBtn = document.getElementById("friends-btn");
+  if (friendsBtn && currentUser) {
+    fetch("http://localhost:8080/friends/requests", {
+      headers: { Authorization: "Bearer " + token }
+    })
+      .then(res => res.json())
+      .then(requests => {
+        if (requests.length > 0) {
+          friendsBtn.textContent = `👥 Freunde (${requests.length})`;
+        }
+      });
+
+    friendsBtn.addEventListener("click", () => {
+      window.location.href = "freunde.html";
+    });
+  }
+
+  // Logout
+  const logoutBtn = document.getElementById("logout-btn");
+  if (logoutBtn) {
+    logoutBtn.addEventListener("click", () => {
+      localStorage.removeItem("jwt_token");
+      window.location.href = "index.html";
+    });
   }
 
   const viewedUser = targetUser || currentUser;
@@ -1898,6 +2842,22 @@ Willkommen(async function () {
         if (req.ok) {
           friendStatus.textContent = "Anfrage gesendet!";
           addFriendBtn.style.display = "none";
+        }
+      });
+    } else if (status === "ACCEPTED") {
+      unfriendBtn.style.display = "inline-block";
+      unfriendBtn.addEventListener("click", async () => {
+        if (!confirm(`Freundschaft mit ${viewedUser} wirklich beenden?`)) return;
+
+        const res = await fetch(`http://localhost:8080/friends/remove/${viewedUser}`, {
+          method: "DELETE",
+          headers: { Authorization: "Bearer " + token }
+        });
+
+        if (res.ok) {
+          friendStatus.textContent = "Freundschaft beendet.";
+          unfriendBtn.style.display = "none";
+          addFriendBtn.style.display = "inline-block";
         }
       });
     }
